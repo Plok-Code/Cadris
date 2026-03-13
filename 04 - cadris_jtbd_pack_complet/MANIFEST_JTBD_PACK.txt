@@ -1,0 +1,30 @@
+Pack complet JTBD / Cadris
+
+Racine:
+- 01_market_segments.md
+- 01_problem_landscape.md
+- 02_existing_alternatives.md
+- 02_primary_icp.md
+- 03_opportunity_hypotheses.md
+- 03_secondary_segments.md
+- 04_anti_target.md
+- 04_market_tensions.md
+- 05_certitude_register.md
+- 06_blocking_questions.md
+- 07_handoff_to_gpt_03.md
+- 07_handoff_to_gpt_04.md
+- 08_icp_research_prompts.md
+- 08_market_research_prompts.md
+- Rapport de décision nom de marque — Cadris.md
+- erreurs_jtbd.md
+- exemples_jtbd.md
+- jtbd_framework.md
+
+jtbd_livrables/:
+- 01_jobs_to_be_done.md
+- 02_pain_points.md
+- 03_desired_outcomes.md
+- 04_user_contexts.md
+- 05_certitude_register.md
+- 06_blocking_questions.md
+- 07_handoff_to_gpt_05.md
