@@ -109,15 +109,15 @@ gcloud builds submit "${ROOT_DIR}/apps/renderer" \
 # Runtime (needs root context for packages/prompts)
 echo "  📦 Building runtime..."
 gcloud builds submit "${ROOT_DIR}" \
-  --tag "${AR_REPO}/runtime" \
   --config="${ROOT_DIR}/deploy/gcr/cloudbuild-runtime.yaml" \
+  --substitutions="_REGION=${REGION}" \
   --project="${PROJECT}" --quiet
 
 # Web (needs root context for monorepo workspace)
 echo "  📦 Building web..."
 gcloud builds submit "${ROOT_DIR}" \
-  --tag "${AR_REPO}/web" \
   --config="${ROOT_DIR}/deploy/gcr/cloudbuild-web.yaml" \
+  --substitutions="_REGION=${REGION}" \
   --project="${PROJECT}" --quiet
 
 echo "  ✅ All images built"

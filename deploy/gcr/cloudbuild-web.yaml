@@ -3,11 +3,11 @@ steps:
     args:
       - "build"
       - "-t"
-      - "$_IMAGE"
+      - "${_REGION}-docker.pkg.dev/$PROJECT_ID/cadris/web"
       - "-f"
-      - "deploy/gcr/Dockerfile.web"
+      - "apps/web/Dockerfile"
       - "."
 images:
-  - "$_IMAGE"
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/cadris/web"
 substitutions:
-  _IMAGE: "gcr.io/$PROJECT_ID/cadris-web"
+  _REGION: "europe-west1"
