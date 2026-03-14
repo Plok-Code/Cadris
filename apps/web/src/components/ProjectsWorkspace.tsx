@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
-import type { ProjectSummary } from "@cadris/schemas";
+import type { FlowCode, ProjectSummary } from "@cadris/schemas";
+import { flowLabels, flowDescriptions } from "@cadris/schemas";
 import { AppShell } from "./AppShell";
 import { cadrisApi } from "../lib/api";
 import { ClientDateTime } from "./ClientDateTime";
@@ -18,6 +19,7 @@ export function ProjectsWorkspace({ initialProjects = [], initialError = null }:
   const router = useRouter();
   const [projects, setProjects] = useState<ProjectSummary[]>(initialProjects);
   const [draftIntakes, setDraftIntakes] = useState<Record<string, string>>({});
+  const [draftFlows, setDraftFlows] = useState<Record<string, FlowCode>>({});
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(initialError);
   const [isPending, startTransition] = useTransition();
@@ -71,10 +73,11 @@ export function ProjectsWorkspace({ initialProjects = [], initialError = null }:
       setError("L'intake libre est requis pour ouvrir une mission.");
       return;
     }
+    const flowCode = draftFlows[projectId] ?? "demarrage";
 
     startTransition(() => {
       void cadrisApi
-        .createMission(projectId, { intakeText })
+        .createMission(projectId, { intakeText, flowCode })
         .then((response) => {
           setProjects((current) =>
             current.map((project) => (project.id === response.project.id ? response.project : project))
@@ -92,7 +95,7 @@ export function ProjectsWorkspace({ initialProjects = [], initialError = null }:
     <AppShell
       eyebrow="Premiere tranche verticale"
       heading="Mes projets"
-      description="Cree un projet, ouvre une mission Demarrage, puis laisse Cadris structurer une premiere boucle de cadrage avant le dossier."
+      description="Cree un projet, choisis un type de mission, puis laisse Cadris structurer une premiere boucle de cadrage avant le dossier."
     >
       <div className="page-grid page-grid--two-columns">
         <section className="panel">
@@ -202,8 +205,29 @@ export function ProjectsWorkspace({ initialProjects = [], initialError = null }:
                 </div>
 
                 {!project.activeMissionId ? (
+                  <>
                   <label className="stack stack--dense">
-                    <span>Intake libre pour Demarrage</span>
+                    <span>Type de mission</span>
+                    <select
+                      className="text-field"
+                      value={draftFlows[project.id] ?? "demarrage"}
+                      onChange={(event) =>
+                        setDraftFlows((current) => ({
+                          ...current,
+                          [project.id]: event.target.value as FlowCode
+                        }))
+                      }
+                    >
+                      {(Object.keys(flowLabels) as FlowCode[]).map((code) => (
+                        <option key={code} value={code}>{flowLabels[code]}</option>
+                      ))}
+                    </select>
+                    <span className="section-description">
+                      {flowDescriptions[draftFlows[project.id] ?? "demarrage"]}
+                    </span>
+                  </label>
+                  <label className="stack stack--dense">
+                    <span>Intake libre pour {flowLabels[draftFlows[project.id] ?? "demarrage"]}</span>
                     <textarea
                       className="text-area"
                       suppressHydrationWarning
@@ -217,6 +241,7 @@ export function ProjectsWorkspace({ initialProjects = [], initialError = null }:
                       placeholder="Explique ton projet avec tes mots. L'important est d'etre concret, pas d'etre complet."
                     />
                   </label>
+                  </>
                 ) : null}
               </article>
             ))}

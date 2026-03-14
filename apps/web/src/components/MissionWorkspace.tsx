@@ -118,7 +118,7 @@ export function MissionWorkspace({
   return (
     <AppShell
       eyebrow="Mission"
-      heading="Mission Demarrage"
+      heading={mission ? `Mission ${mission.flowLabel}` : "Mission"}
       description="La mission reste synthese-first. L'utilisateur arbitre au bon moment, puis le systeme met a jour les artefacts et le dossier."
     >
       {isLoading ? (
@@ -203,7 +203,9 @@ export function MissionWorkspace({
               <article className="panel question-card">
                 <div className="question-card__header">
                   <div className="stack stack--dense">
-                    <div className="section-eyebrow">Question utile</div>
+                    <div className="section-eyebrow">
+                      Question utile — Cycle {mission.questionHistory.filter(q => q.status === "answered").length + 1}
+                    </div>
                     <strong>{mission.activeQuestion.title}</strong>
                   </div>
                   <StatusTag code="waiting_user" />
@@ -229,12 +231,18 @@ export function MissionWorkspace({
               </article>
             ) : (
               <article className="panel">
-                <div className="notice">La question active est resolue. Le dossier peut maintenant etre relu.</div>
-                <div className="button-row">
-                  <Link className="button" href={`/dossiers/${mission.id}`}>
-                    Ouvrir le dossier
-                  </Link>
+                <div className="notice">
+                  {mission.dossierReady
+                    ? "Toutes les questions sont resolues. Le dossier est pret."
+                    : "La mission est en cours de traitement."}
                 </div>
+                {mission.dossierReady ? (
+                  <div className="button-row">
+                    <Link className="button" href={`/dossiers/${mission.id}`}>
+                      Ouvrir le dossier
+                    </Link>
+                  </div>
+                ) : null}
               </article>
             )}
 
@@ -251,6 +259,19 @@ export function MissionWorkspace({
                   </div>
                 </div>
                 <p className="section-description">{block.content}</p>
+                {block.sections.length > 0 ? (
+                  <div className="stack stack--dense" style={{ marginTop: "0.5rem", paddingTop: "0.5rem", borderTop: "1px solid var(--color-border, #e2e2e2)" }}>
+                    {block.sections.map((section) => (
+                      <div key={section.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" }}>
+                        <div style={{ flex: 1 }}>
+                          <strong style={{ fontSize: "0.85rem" }}>{section.title}</strong>
+                          <p className="section-description" style={{ margin: "0.15rem 0 0" }}>{section.content}</p>
+                        </div>
+                        <StatusTag code={section.certainty} />
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </article>
             ))}
 

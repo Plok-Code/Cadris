@@ -22,6 +22,7 @@ class Settings(BaseModel):
     max_upload_bytes: int = Field(default=int(os.getenv("CONTROL_PLANE_MAX_UPLOAD_BYTES", "5242880")))
     s3_bucket: str | None = Field(default=os.getenv("CONTROL_PLANE_S3_BUCKET", None))
     s3_endpoint: str | None = Field(default=os.getenv("CONTROL_PLANE_S3_ENDPOINT", None))
+    openai_api_key: str | None = Field(default=os.getenv("OPENAI_API_KEY", None))
 
 
 settings = Settings()

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from sqlalchemy import Boolean, ForeignKey, Integer, Text
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -66,6 +66,7 @@ class MissionRecord(Base):
     messages: Mapped[list["MissionMessageRecord"]] = relationship(back_populates="mission")
     questions: Mapped[list["MissionQuestionRecord"]] = relationship(back_populates="mission")
     artifacts: Mapped[list["ArtifactRecord"]] = relationship(back_populates="mission")
+    citations: Mapped[list["CitationRecord"]] = relationship(back_populates="mission")
 
 
 class MissionInputRecord(Base):
@@ -81,10 +82,13 @@ class MissionInputRecord(Base):
     byte_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     storage_path: Mapped[str | None] = mapped_column(Text(), nullable=True)
     preview_text: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    openai_file_id: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    vector_store_id: Mapped[str | None] = mapped_column(Text(), nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[str] = mapped_column(default=utc_now)
 
     mission: Mapped[MissionRecord] = relationship(back_populates="inputs")
+    citations: Mapped[list["CitationRecord"]] = relationship(back_populates="input")
 
 
 class AgentRunRecord(Base):
@@ -183,3 +187,37 @@ class DossierRecord(Base):
     updated_at: Mapped[str] = mapped_column(default=utc_now)
 
     mission: Mapped[MissionRecord] = relationship(back_populates="dossier")
+
+
+class ExportRecord(Base):
+    __tablename__ = "exports"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    mission_id: Mapped[str] = mapped_column(ForeignKey("missions.id", ondelete="CASCADE"), index=True)
+    bundle_type: Mapped[str] = mapped_column(Text(), default="MissionDossier")
+    format: Mapped[str] = mapped_column(Text())
+    snapshot_version: Mapped[int] = mapped_column(Integer, default=1)
+    partial: Mapped[bool] = mapped_column(Boolean, default=False)
+    token: Mapped[str | None] = mapped_column(Text(), unique=True, nullable=True)
+    file_url: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[str] = mapped_column(default=utc_now)
+    revoked_at: Mapped[str | None] = mapped_column(nullable=True)
+
+    mission: Mapped[MissionRecord] = relationship()
+
+
+class CitationRecord(Base):
+    __tablename__ = "citations"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    mission_id: Mapped[str] = mapped_column(ForeignKey("missions.id", ondelete="CASCADE"), index=True)
+    input_id: Mapped[str] = mapped_column(ForeignKey("mission_inputs.id", ondelete="CASCADE"), index=True)
+    agent_code: Mapped[str] = mapped_column(Text())
+    excerpt: Mapped[str] = mapped_column(Text())
+    locator: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    score: Mapped[float | None] = mapped_column(nullable=True)
+    created_at: Mapped[str] = mapped_column(default=utc_now)
+
+    mission: Mapped[MissionRecord] = relationship(back_populates="citations")
+    input: Mapped[MissionInputRecord] = relationship(back_populates="citations")

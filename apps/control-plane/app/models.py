@@ -4,7 +4,13 @@ from datetime import UTC, datetime
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
-FlowCode = Literal["demarrage"]
+FlowCode = Literal["demarrage", "projet_flou", "pivot"]
+
+FLOW_LABELS: dict[str, str] = {
+    "demarrage": "Nouveau projet",
+    "projet_flou": "Projet a recadrer",
+    "pivot": "Refonte / pivot",
+}
 MissionStatus = Literal["draft", "in_progress", "waiting_user", "completed"]
 BlockStatus = Literal["not_started", "in_progress", "ready_to_decide", "complete", "to_revise"]
 CertaintyStatus = Literal["solid", "to_confirm", "unknown", "blocking"]
@@ -43,6 +49,13 @@ class TimelineItem(ApiModel):
     status: TimelineStatus
 
 
+class ArtifactSectionItem(ApiModel):
+    key: str
+    title: str
+    content: str
+    certainty: CertaintyStatus = "unknown"
+
+
 class ArtifactBlock(ApiModel):
     id: str
     title: str
@@ -50,6 +63,7 @@ class ArtifactBlock(ApiModel):
     certainty: CertaintyStatus
     summary: str
     content: str
+    sections: list[ArtifactSectionItem] = Field(default_factory=list)
 
 
 class MissionQuestion(ApiModel):
@@ -69,6 +83,8 @@ class MissionInputItem(ApiModel):
     mime_type: str | None = None
     byte_size: int | None = None
     preview_text: str | None = None
+    openai_file_id: str | None = None
+    vector_store_id: str | None = None
     created_at: str = Field(default_factory=utc_now)
 
 
@@ -165,6 +181,7 @@ class CreateProjectRequest(ApiModel):
 
 class CreateMissionRequest(ApiModel):
     intake_text: str = Field(min_length=20, max_length=5000)
+    flow_code: FlowCode = "demarrage"
 
 
 class AnswerQuestionRequest(ApiModel):
@@ -176,6 +193,27 @@ class UploadMissionInputResponse(ApiModel):
     input: MissionInputItem
 
 
+class CitationItem(ApiModel):
+    id: str
+    mission_id: str
+    input_id: str
+    agent_code: str
+    excerpt: str
+    locator: str | None = None
+    score: float | None = None
+    display_name: str | None = None
+    created_at: str = Field(default_factory=utc_now)
+
+
+class SearchMissionInputsRequest(ApiModel):
+    query: str = Field(min_length=3, max_length=1000)
+    max_results: int = Field(default=5, ge=1, le=20)
+
+
+class SearchMissionInputsResponse(ApiModel):
+    results: list[CitationItem]
+
+
 class CreateMissionResponse(ApiModel):
     project: ProjectSummary
     mission: MissionReadModel
@@ -183,13 +221,14 @@ class CreateMissionResponse(ApiModel):
 
 class AnswerQuestionResponse(ApiModel):
     mission: MissionReadModel
-    dossier: DossierReadModel
+    dossier: DossierReadModel | None = None
 
 
 class RuntimeStartRequest(ApiModel):
     mission_id: str
     project_name: str
     intake_text: str
+    flow_code: FlowCode = "demarrage"
     supporting_inputs: list[RuntimeInputItem] = Field(default_factory=list)
 
 
@@ -209,6 +248,9 @@ class RuntimeResumeRequest(ApiModel):
     project_name: str
     intake_text: str
     answer_text: str
+    flow_code: FlowCode = "demarrage"
+    cycle_number: int = 1
+    previous_answers: list[str] = Field(default_factory=list)
     supporting_inputs: list[RuntimeInputItem] = Field(default_factory=list)
 
 
@@ -216,19 +258,44 @@ class RuntimeResumeResponse(ApiModel):
     summary: str
     next_step: str
     artifact_blocks: list[ArtifactBlock]
+    active_question: MissionQuestion | None = None
+    certainty_entries: list[CertaintyEntry] = Field(default_factory=list)
     active_agents: list[MissionAgent]
     recent_messages: list[MissionMessage]
     timeline: list[TimelineItem]
     status: MissionStatus
-    dossier_title: str
-    dossier_summary: str
-    dossier_sections: list[DossierSection]
-    quality_label: str
+    dossier_title: str | None = None
+    dossier_summary: str | None = None
+    dossier_sections: list[DossierSection] = Field(default_factory=list)
+    quality_label: str | None = None
+
+
+class ExportReadModel(ApiModel):
+    id: str
+    mission_id: str
+    bundle_type: str
+    format: str
+    snapshot_version: int
+    partial: bool = False
+    token: str | None = None
+    file_url: str | None = None
+    revoked: bool = False
+    created_at: str = Field(default_factory=utc_now)
+
+
+class CreateShareLinkRequest(ApiModel):
+    pass
+
+
+class CreateShareLinkResponse(ApiModel):
+    export: ExportReadModel
+    share_url: str
 
 
 class RendererRequest(ApiModel):
     title: str
     summary: str
+    quality_label: str | None = None
     sections: list[DossierSection]
 
 

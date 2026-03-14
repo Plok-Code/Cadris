@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from uuid import uuid4
 
 from fastapi import HTTPException, Request
@@ -9,6 +10,8 @@ from fastapi.responses import JSONResponse
 from .errors import AppError
 from .models import ApiErrorEnvelope
 from .request_context import get_request_id, set_request_id
+
+logger = logging.getLogger(__name__)
 
 
 def ensure_request_id(request: Request) -> str:
@@ -62,7 +65,8 @@ async def validation_exception_handler(_: Request, error: RequestValidationError
     return JSONResponse(status_code=422, content=envelope.model_dump(mode="json", by_alias=True))
 
 
-async def unhandled_exception_handler(_: Request, __: Exception) -> JSONResponse:
+async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONResponse:
+    logger.exception("Unhandled exception (request_id=%s)", get_request_id(), exc_info=exc)
     envelope = ApiErrorEnvelope(
         code="internal_error",
         category="internal",

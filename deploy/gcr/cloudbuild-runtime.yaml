@@ -1,0 +1,13 @@
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - "build"
+      - "-t"
+      - "$_IMAGE"
+      - "-f"
+      - "deploy/gcr/Dockerfile.runtime"
+      - "."
+images:
+  - "$_IMAGE"
+substitutions:
+  _IMAGE: "gcr.io/$PROJECT_ID/cadris-runtime"

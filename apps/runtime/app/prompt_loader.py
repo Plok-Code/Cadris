@@ -13,10 +13,21 @@ class PromptTemplate:
 
 
 PROMPT_PATHS: dict[str, Path] = {
+    # Demarrage
     "demarrage/supervisor/start": Path("demarrage/supervisor_start.md"),
     "demarrage/supervisor/resume": Path("demarrage/supervisor_resume.md"),
     "demarrage/strategy/core": Path("demarrage/strategy_agent.md"),
     "demarrage/product/core": Path("demarrage/product_agent.md"),
+    # Projet flou
+    "projet_flou/supervisor/start": Path("projet_flou/supervisor_start.md"),
+    "projet_flou/supervisor/resume": Path("projet_flou/supervisor_resume.md"),
+    "projet_flou/strategy/core": Path("projet_flou/strategy_agent.md"),
+    "projet_flou/product/core": Path("projet_flou/product_agent.md"),
+    # Pivot
+    "pivot/supervisor/start": Path("pivot/supervisor_start.md"),
+    "pivot/supervisor/resume": Path("pivot/supervisor_resume.md"),
+    "pivot/strategy/core": Path("pivot/strategy_agent.md"),
+    "pivot/product/core": Path("pivot/product_agent.md"),
 }
 
 

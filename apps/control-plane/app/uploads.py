@@ -66,6 +66,12 @@ class LocalUploadStorage:
             preview_text=build_preview(data, resolved_media_type),
         )
 
+    def download(self, storage_path: str) -> bytes | None:
+        path = Path(storage_path)
+        if not path.exists():
+            return None
+        return path.read_bytes()
+
 
 class S3UploadStorage:
     def __init__(self, bucket_name: str, endpoint_url: str | None = None) -> None:
@@ -76,7 +82,7 @@ class S3UploadStorage:
         safe_name = sanitize_filename(filename)
         input_id = f"input_{uuid4().hex[:10]}"
         resolved_media_type = media_type or mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
-        
+
         s3_key = f"missions/{mission_id}/{input_id}_{safe_name}"
         self.s3.put_object(
             Bucket=self.bucket,
@@ -84,7 +90,7 @@ class S3UploadStorage:
             Body=data,
             ContentType=resolved_media_type
         )
-        
+
         return StoredUpload(
             input_id=input_id,
             display_name=filename,
@@ -93,3 +99,57 @@ class S3UploadStorage:
             storage_path=f"s3://{self.bucket}/{s3_key}",
             preview_text=build_preview(data, resolved_media_type),
         )
+
+    def download(self, storage_path: str) -> bytes | None:
+        s3_key = self._extract_key(storage_path)
+        if not s3_key:
+            return None
+        try:
+            response = self.s3.get_object(Bucket=self.bucket, Key=s3_key)
+            return response["Body"].read()
+        except self.s3.exceptions.NoSuchKey:
+            return None
+
+    def generate_presigned_upload_url(
+        self, *, mission_id: str, filename: str, content_type: str, expires_in: int = 3600
+    ) -> dict[str, str]:
+        safe_name = sanitize_filename(filename)
+        input_id = f"input_{uuid4().hex[:10]}"
+        s3_key = f"missions/{mission_id}/{input_id}_{safe_name}"
+
+        url = self.s3.generate_presigned_url(
+            "put_object",
+            Params={
+                "Bucket": self.bucket,
+                "Key": s3_key,
+                "ContentType": content_type,
+            },
+            ExpiresIn=expires_in,
+        )
+        return {
+            "upload_url": url,
+            "s3_key": s3_key,
+            "input_id": input_id,
+            "storage_path": f"s3://{self.bucket}/{s3_key}",
+        }
+
+    def generate_presigned_download_url(self, storage_path: str, *, expires_in: int = 3600) -> str | None:
+        s3_key = self._extract_key(storage_path)
+        if not s3_key:
+            return None
+        return self.s3.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self.bucket, "Key": s3_key},
+            ExpiresIn=expires_in,
+        )
+
+    @staticmethod
+    def _extract_key(storage_path: str) -> str | None:
+        if not storage_path.startswith("s3://"):
+            return None
+        # s3://bucket/key -> key
+        without_prefix = storage_path[5:]
+        slash_idx = without_prefix.find("/")
+        if slash_idx < 0:
+            return None
+        return without_prefix[slash_idx + 1:]

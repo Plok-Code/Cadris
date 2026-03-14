@@ -7,7 +7,9 @@ from sqlalchemy.orm import Session
 from .models import (
     ArtifactBlock,
     CertaintyEntry,
+    CitationItem,
     DossierReadModel,
+    ExportReadModel,
     MissionInputItem,
     MissionAgent,
     MissionMessage,
@@ -18,7 +20,9 @@ from .models import (
 from .records import (
     AgentRunRecord,
     ArtifactRecord,
+    CitationRecord,
     DossierRecord,
+    ExportRecord,
     MissionAgentRecord,
     MissionInputRecord,
     MissionMessageRecord,
@@ -36,6 +40,24 @@ def utc_now() -> str:
 class ControlPlaneRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
+
+    def recover_stale_runs(self) -> int:
+        """Mark any runs still in 'running' status as 'interrupted'.
+
+        Called at startup to clean up runs that were in progress when
+        the server was last shut down or crashed.
+        """
+        stale = (
+            self.session.query(AgentRunRecord)
+            .filter(AgentRunRecord.status == "running")
+            .all()
+        )
+        for run in stale:
+            run.status = "interrupted"
+            run.ended_at = utc_now()
+        if stale:
+            self.session.commit()
+        return len(stale)
 
     def ensure_user(self, user_id: str, email: str) -> UserRecord:
         user = self.session.get(UserRecord, user_id)
@@ -135,6 +157,8 @@ class ControlPlaneRepository:
         byte_size: int | None = None,
         storage_path: str | None = None,
         preview_text: str | None = None,
+        openai_file_id: str | None = None,
+        vector_store_id: str | None = None,
     ) -> MissionInputItem:
         sort_order = (
             self.session.scalar(
@@ -153,12 +177,28 @@ class ControlPlaneRepository:
             byte_size=byte_size,
             storage_path=storage_path,
             preview_text=preview_text,
+            openai_file_id=openai_file_id,
+            vector_store_id=vector_store_id,
             sort_order=sort_order,
             created_at=utc_now(),
         )
         self.session.add(record)
         self.session.commit()
         return self._to_mission_input_item(record)
+
+    def update_mission_input_file_search(
+        self,
+        *,
+        input_id: str,
+        openai_file_id: str,
+        vector_store_id: str,
+    ) -> None:
+        record = self.session.get(MissionInputRecord, input_id)
+        if record is None:
+            return
+        record.openai_file_id = openai_file_id
+        record.vector_store_id = vector_store_id
+        self.session.commit()
 
     def get_mission_input_for_user(self, user_id: str, mission_id: str, input_id: str) -> MissionInputRecord | None:
         statement = (
@@ -449,6 +489,78 @@ class ControlPlaneRepository:
             return "Ce point fragilise fortement le dossier et peut bloquer la suite."
         return "Ce point reste insuffisamment connu et limite la qualite de decision."
 
+    def create_citation(
+        self,
+        *,
+        citation_id: str,
+        mission_id: str,
+        input_id: str,
+        agent_code: str,
+        excerpt: str,
+        locator: str | None = None,
+        score: float | None = None,
+    ) -> CitationItem:
+        record = CitationRecord(
+            id=citation_id,
+            mission_id=mission_id,
+            input_id=input_id,
+            agent_code=agent_code,
+            excerpt=excerpt,
+            locator=locator,
+            score=score,
+            created_at=utc_now(),
+        )
+        self.session.add(record)
+        self.session.commit()
+        input_record = self.session.get(MissionInputRecord, input_id)
+        return CitationItem(
+            id=record.id,
+            mission_id=record.mission_id,
+            input_id=record.input_id,
+            agent_code=record.agent_code,
+            excerpt=record.excerpt,
+            locator=record.locator,
+            score=record.score,
+            display_name=input_record.display_name if input_record else None,
+            created_at=record.created_at,
+        )
+
+    def list_citations_for_mission(self, mission_id: str) -> list[CitationItem]:
+        statement = (
+            select(CitationRecord)
+            .where(CitationRecord.mission_id == mission_id)
+            .order_by(CitationRecord.created_at)
+        )
+        records = self.session.scalars(statement).all()
+        result: list[CitationItem] = []
+        for rec in records:
+            input_record = self.session.get(MissionInputRecord, rec.input_id)
+            result.append(
+                CitationItem(
+                    id=rec.id,
+                    mission_id=rec.mission_id,
+                    input_id=rec.input_id,
+                    agent_code=rec.agent_code,
+                    excerpt=rec.excerpt,
+                    locator=rec.locator,
+                    score=rec.score,
+                    display_name=input_record.display_name if input_record else None,
+                    created_at=rec.created_at,
+                )
+            )
+        return result
+
+    def get_vector_store_id_for_mission(self, mission_id: str) -> str | None:
+        statement = (
+            select(MissionInputRecord.vector_store_id)
+            .where(
+                MissionInputRecord.mission_id == mission_id,
+                MissionInputRecord.vector_store_id.isnot(None),
+            )
+            .limit(1)
+        )
+        return self.session.scalar(statement)
+
     @staticmethod
     def _to_mission_input_item(record: MissionInputRecord) -> MissionInputItem:
         return MissionInputItem(
@@ -460,6 +572,76 @@ class ControlPlaneRepository:
             mime_type=record.mime_type,
             byte_size=record.byte_size,
             preview_text=record.preview_text,
+            openai_file_id=record.openai_file_id,
+            vector_store_id=record.vector_store_id,
+            created_at=record.created_at,
+        )
+
+    def create_export(
+        self,
+        *,
+        export_id: str,
+        mission_id: str,
+        format: str,
+        token: str | None = None,
+        bundle_type: str = "MissionDossier",
+    ) -> ExportReadModel:
+        record = ExportRecord(
+            id=export_id,
+            mission_id=mission_id,
+            bundle_type=bundle_type,
+            format=format,
+            token=token,
+            created_at=utc_now(),
+        )
+        self.session.add(record)
+        self.session.commit()
+        self.session.refresh(record)
+        return self._to_export_read_model(record)
+
+    def get_export_by_token(self, token: str) -> ExportRecord | None:
+        statement = select(ExportRecord).where(
+            ExportRecord.token == token,
+            ExportRecord.revoked == False,  # noqa: E712
+        )
+        return self.session.scalar(statement)
+
+    def revoke_export(self, export_id: str, user_id: str) -> ExportReadModel | None:
+        statement = (
+            select(ExportRecord)
+            .join(MissionRecord, ExportRecord.mission_id == MissionRecord.id)
+            .join(ProjectRecord, MissionRecord.project_id == ProjectRecord.id)
+            .where(ExportRecord.id == export_id, ProjectRecord.user_id == user_id)
+        )
+        record = self.session.scalar(statement)
+        if record is None:
+            return None
+        record.revoked = True
+        record.revoked_at = utc_now()
+        self.session.commit()
+        self.session.refresh(record)
+        return self._to_export_read_model(record)
+
+    def list_exports_for_mission(self, mission_id: str) -> list[ExportReadModel]:
+        statement = (
+            select(ExportRecord)
+            .where(ExportRecord.mission_id == mission_id)
+            .order_by(ExportRecord.created_at.desc())
+        )
+        return [self._to_export_read_model(r) for r in self.session.scalars(statement).all()]
+
+    @staticmethod
+    def _to_export_read_model(record: ExportRecord) -> ExportReadModel:
+        return ExportReadModel(
+            id=record.id,
+            mission_id=record.mission_id,
+            bundle_type=record.bundle_type,
+            format=record.format,
+            snapshot_version=record.snapshot_version,
+            partial=record.partial,
+            token=record.token,
+            file_url=record.file_url,
+            revoked=record.revoked,
             created_at=record.created_at,
         )
 

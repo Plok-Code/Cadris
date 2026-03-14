@@ -2,12 +2,17 @@ import type {
   ApiErrorEnvelope,
   AnswerQuestionRequest,
   AnswerQuestionResponse,
+  CitationItem,
   CreateMissionRequest,
   CreateMissionResponse,
   CreateProjectRequest,
+  CreateShareLinkResponse,
   DossierReadModel,
+  ExportReadModel,
   MissionReadModel,
   ProjectSummary,
+  SearchMissionInputsRequest,
+  SearchMissionInputsResponse,
   UploadMissionInputResponse
 } from "@cadris/schemas";
 
@@ -64,6 +69,41 @@ export class CadrisApiClient {
 
   getDossierPdfUrl(missionId: string): string {
     return `${this.options.baseUrl}/api/missions/${missionId}/dossier/pdf`;
+  }
+
+  getDossierMarkdownUrl(missionId: string): string {
+    return `${this.options.baseUrl}/api/missions/${missionId}/dossier/markdown`;
+  }
+
+  createShareLink(missionId: string) {
+    return this.request<CreateShareLinkResponse>(`/api/missions/${missionId}/dossier/share`, {
+      method: "POST"
+    });
+  }
+
+  listExports(missionId: string) {
+    return this.request<ExportReadModel[]>(`/api/missions/${missionId}/exports`);
+  }
+
+  revokeExport(exportId: string) {
+    return this.request<ExportReadModel>(`/api/exports/${exportId}`, {
+      method: "DELETE"
+    });
+  }
+
+  searchMissionInputs(missionId: string, payload: SearchMissionInputsRequest) {
+    return this.request<SearchMissionInputsResponse>(`/api/missions/${missionId}/inputs/search`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  }
+
+  listCitations(missionId: string) {
+    return this.request<CitationItem[]>(`/api/missions/${missionId}/citations`);
+  }
+
+  downloadInputUrl(missionId: string, inputId: string): string {
+    return `${this.options.baseUrl}/api/missions/${missionId}/inputs/${inputId}/download`;
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {

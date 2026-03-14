@@ -1,4 +1,4 @@
-export type FlowCode = "demarrage";
+export type FlowCode = "demarrage" | "projet_flou" | "pivot";
 
 export type MissionStatus = "draft" | "in_progress" | "waiting_user" | "completed";
 
@@ -35,6 +35,13 @@ export interface TimelineItem {
   status: TimelineStatus;
 }
 
+export interface ArtifactSectionItem {
+  key: string;
+  title: string;
+  content: string;
+  certainty: CertaintyStatus;
+}
+
 export interface ArtifactBlock {
   id: string;
   title: string;
@@ -42,6 +49,7 @@ export interface ArtifactBlock {
   certainty: CertaintyStatus;
   summary: string;
   content: string;
+  sections: ArtifactSectionItem[];
 }
 
 export interface MissionQuestion {
@@ -61,6 +69,8 @@ export interface MissionInputItem {
   mimeType?: string;
   byteSize?: number;
   previewText?: string;
+  openaiFileId?: string;
+  vectorStoreId?: string;
   createdAt: string;
 }
 
@@ -146,6 +156,7 @@ export interface CreateProjectRequest {
 
 export interface CreateMissionRequest {
   intakeText: string;
+  flowCode?: FlowCode;
 }
 
 export interface AnswerQuestionRequest {
@@ -159,12 +170,51 @@ export interface CreateMissionResponse {
 
 export interface AnswerQuestionResponse {
   mission: MissionReadModel;
-  dossier: DossierReadModel;
+  dossier: DossierReadModel | null;
 }
 
 export interface UploadMissionInputResponse {
   mission: MissionReadModel;
   input: MissionInputItem;
+}
+
+export interface CitationItem {
+  id: string;
+  missionId: string;
+  inputId: string;
+  agentCode: string;
+  excerpt: string;
+  locator?: string;
+  score?: number;
+  displayName?: string;
+  createdAt: string;
+}
+
+export interface SearchMissionInputsRequest {
+  query: string;
+  maxResults?: number;
+}
+
+export interface SearchMissionInputsResponse {
+  results: CitationItem[];
+}
+
+export interface ExportReadModel {
+  id: string;
+  missionId: string;
+  bundleType: string;
+  format: string;
+  snapshotVersion: number;
+  partial: boolean;
+  token: string | null;
+  fileUrl: string | null;
+  revoked: boolean;
+  createdAt: string;
+}
+
+export interface CreateShareLinkResponse {
+  export: ExportReadModel;
+  shareUrl: string;
 }
 
 export const missionStatusLabels: Record<MissionStatus, string> = {
@@ -194,4 +244,16 @@ export const timelineLabels: Record<TimelineStatus, string> = {
   in_progress: "En cours",
   waiting_user: "En attente",
   completed: "Complet"
+};
+
+export const flowLabels: Record<FlowCode, string> = {
+  demarrage: "Nouveau projet",
+  projet_flou: "Projet a recadrer",
+  pivot: "Refonte / pivot"
+};
+
+export const flowDescriptions: Record<FlowCode, string> = {
+  demarrage: "Faire emerger un projet, structurer les domaines utiles, produire un premier dossier serieux.",
+  projet_flou: "Remettre un projet existant en coherence sans repartir de zero.",
+  pivot: "Rouvrir ce qui est vraiment impacte par un changement majeur, puis republier un dossier credible."
 };

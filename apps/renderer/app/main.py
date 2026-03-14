@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import io
+import logging
 import markdown as md_lib
 from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 
 class DossierSection(BaseModel):
@@ -17,6 +20,7 @@ class DossierSection(BaseModel):
 class RendererRequest(BaseModel):
     title: str
     summary: str
+    quality_label: str | None = None
     sections: list[DossierSection]
 
 
@@ -68,6 +72,14 @@ p {
 .certainty-to_confirm { background: #f39c12; }
 .certainty-unknown { background: #95a5a6; }
 .certainty-blocking { background: #e74c3c; }
+.quality-label {
+    font-size: 10pt;
+    color: #0f3460;
+    margin-bottom: 12pt;
+    padding: 4pt 8pt;
+    background: #f0f4f8;
+    border-left: 3pt solid #0f3460;
+}
 .footer {
     margin-top: 24pt;
     padding-top: 8pt;
@@ -78,19 +90,37 @@ p {
 """
 
 
+CERTAINTY_LABELS = {
+    "solid": "Solide",
+    "to_confirm": "A confirmer",
+    "unknown": "Inconnu",
+    "blocking": "Bloquant",
+}
+
+
 def build_markdown(payload: RendererRequest) -> str:
-    blocks: list[str] = [f"# {payload.title}", payload.summary]
+    blocks: list[str] = [f"# {payload.title}"]
+    if payload.quality_label:
+        blocks.append(f"**Statut qualite** : {payload.quality_label}")
+    blocks.append(payload.summary)
     for section in payload.sections:
-        blocks.append(f"## {section.title}")
+        cert_label = CERTAINTY_LABELS.get(section.certainty, section.certainty)
+        blocks.append(f"## {section.title}  [{cert_label}]")
         blocks.append(section.content)
+    blocks.append("---")
+    blocks.append("*Genere par Cadris*")
     return "\n\n".join(blocks)
 
 
 def build_html(payload: RendererRequest) -> str:
-    parts: list[str] = [f"<h1>{payload.title}</h1>", f"<p>{payload.summary}</p>"]
+    parts: list[str] = [f"<h1>{payload.title}</h1>"]
+    if payload.quality_label:
+        parts.append(f'<p class="quality-label"><strong>Statut qualite</strong> : {payload.quality_label}</p>')
+    parts.append(f"<p>{payload.summary}</p>")
     for section in payload.sections:
         certainty_class = f"certainty-{section.certainty}"
-        tag = f'<span class="certainty-tag {certainty_class}">{section.certainty}</span>'
+        cert_label = CERTAINTY_LABELS.get(section.certainty, section.certainty)
+        tag = f'<span class="certainty-tag {certainty_class}">{cert_label}</span>'
         parts.append(f"<h2>{section.title} {tag}</h2>")
         html_content = md_lib.markdown(section.content)
         parts.append(html_content)
@@ -124,7 +154,19 @@ async def render_pdf(payload: RendererRequest):
 
     html_content = build_html(payload)
     buffer = io.BytesIO()
-    pisa.CreatePDF(html_content, dest=buffer)
+    try:
+        pisa_status = pisa.CreatePDF(html_content, dest=buffer)
+        if pisa_status.err:
+            raise RuntimeError(f"xhtml2pdf reported {pisa_status.err} error(s)")
+    except Exception:
+        logger.exception("PDF generation failed for dossier '%s'", payload.title)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "pdf_generation_failed",
+                "message": "La generation PDF a echoue. Le dossier reste disponible en markdown et HTML.",
+            },
+        )
     buffer.seek(0)
     return StreamingResponse(
         buffer,

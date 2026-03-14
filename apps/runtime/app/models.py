@@ -16,6 +16,13 @@ class TimelineItem(BaseModel):
     status: TimelineStatus
 
 
+class ArtifactSection(BaseModel):
+    key: str
+    title: str
+    content: str
+    certainty: CertaintyStatus = "unknown"
+
+
 class ArtifactBlock(BaseModel):
     id: str
     title: str
@@ -23,6 +30,7 @@ class ArtifactBlock(BaseModel):
     certainty: CertaintyStatus
     summary: str
     content: str
+    sections: list[ArtifactSection] = Field(default_factory=list)
 
 
 class MissionQuestion(BaseModel):
@@ -79,10 +87,14 @@ class DossierSection(BaseModel):
     certainty: CertaintyStatus
 
 
+FlowCode = Literal["demarrage", "projet_flou", "pivot"]
+
+
 class RuntimeStartRequest(BaseModel):
     mission_id: str
     project_name: str
     intake_text: str = Field(min_length=20)
+    flow_code: FlowCode = "demarrage"
     supporting_inputs: list[RuntimeInputItem] = Field(default_factory=list)
 
 
@@ -102,6 +114,9 @@ class RuntimeResumeRequest(BaseModel):
     project_name: str
     intake_text: str
     answer_text: str = Field(min_length=10)
+    flow_code: FlowCode = "demarrage"
+    cycle_number: int = 1
+    previous_answers: list[str] = Field(default_factory=list)
     supporting_inputs: list[RuntimeInputItem] = Field(default_factory=list)
 
 
@@ -109,11 +124,13 @@ class RuntimeResumeResponse(BaseModel):
     summary: str
     next_step: str
     artifact_blocks: list[ArtifactBlock]
+    active_question: MissionQuestion | None = None
+    certainty_entries: list[CertaintyEntry] = Field(default_factory=list)
     active_agents: list[MissionAgent]
     recent_messages: list[MissionMessage]
     timeline: list[TimelineItem]
     status: MissionStatus
-    dossier_title: str
-    dossier_summary: str
-    dossier_sections: list[DossierSection]
-    quality_label: str
+    dossier_title: str | None = None
+    dossier_summary: str | None = None
+    dossier_sections: list[DossierSection] = Field(default_factory=list)
+    quality_label: str | None = None

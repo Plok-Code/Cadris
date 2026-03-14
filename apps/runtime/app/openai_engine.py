@@ -21,6 +21,12 @@ from .models import (
 )
 from .prompt_loader import load_prompt
 
+FLOW_DOSSIER_TITLES = {
+    "demarrage": "Dossier d'execution - Demarrage",
+    "projet_flou": "Dossier de recadrage",
+    "pivot": "Dossier de pivot",
+}
+
 try:
     from agents import Agent, Runner
 except Exception as exc:  # pragma: no cover - import guard
@@ -128,9 +134,9 @@ class OpenAIRuntimeEngine:
     async def start_mission(self, payload: RuntimeStartRequest) -> RuntimeStartResponse:
         intake = " ".join(payload.intake_text.split())
         sources_block = supporting_inputs_task_block(payload.supporting_inputs)
-        strategy_prompt = load_prompt("demarrage/strategy/core")
-        product_prompt = load_prompt("demarrage/product/core")
-        supervisor_prompt = load_prompt("demarrage/supervisor/start")
+        strategy_prompt = load_prompt(f"{payload.flow_code}/strategy/core")
+        product_prompt = load_prompt(f"{payload.flow_code}/product/core")
+        supervisor_prompt = load_prompt(f"{payload.flow_code}/supervisor/start")
 
         strategy = await self._run_structured(
             name="Cadris Strategy Core",
@@ -252,12 +258,17 @@ class OpenAIRuntimeEngine:
         )
 
     async def resume_mission(self, payload: RuntimeResumeRequest) -> RuntimeResumeResponse:
+        from .orchestrator import build_resume_response, MAX_CYCLES
+
+        if payload.cycle_number < MAX_CYCLES:
+            return build_resume_response(payload)
+
         intake = " ".join(payload.intake_text.split())
         answer = " ".join(payload.answer_text.split())
         sources_block = supporting_inputs_task_block(payload.supporting_inputs)
-        strategy_prompt = load_prompt("demarrage/strategy/core")
-        product_prompt = load_prompt("demarrage/product/core")
-        supervisor_prompt = load_prompt("demarrage/supervisor/resume")
+        strategy_prompt = load_prompt(f"{payload.flow_code}/strategy/core")
+        product_prompt = load_prompt(f"{payload.flow_code}/product/core")
+        supervisor_prompt = load_prompt(f"{payload.flow_code}/supervisor/resume")
 
         strategy = await self._run_structured(
             name="Cadris Strategy Resume",
@@ -374,7 +385,7 @@ class OpenAIRuntimeEngine:
                 TimelineItem(id="dossier", label="Premier dossier", status="completed"),
             ],
             status="completed",
-            dossier_title="Dossier d'execution - Demarrage",
+            dossier_title=FLOW_DOSSIER_TITLES.get(payload.flow_code, f"Dossier - {payload.flow_code}"),
             dossier_summary=supervisor.dossier_summary,
             dossier_sections=[
                 DossierSection(

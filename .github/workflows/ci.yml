@@ -1,0 +1,62 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install runtime deps
+        working-directory: apps/runtime
+        run: pip install . pytest
+      - name: Run runtime tests
+        working-directory: apps/runtime
+        run: python -m pytest tests/ -v
+
+  test-control-plane:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install control-plane deps
+        working-directory: apps/control-plane
+        run: pip install ".[test]"
+      - name: Run control-plane tests
+        working-directory: apps/control-plane
+        run: python -m pytest tests/ -v
+
+  test-renderer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install renderer deps
+        working-directory: apps/renderer
+        run: pip install . pytest
+      - name: Run renderer tests
+        working-directory: apps/renderer
+        run: python -m pytest tests/ -v
+
+  build-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install deps
+        run: npm ci
+      - name: Build web
+        working-directory: apps/web
+        run: npm run build
