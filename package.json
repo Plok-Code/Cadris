@@ -1,0 +1,21 @@
+{
+  "name": "cadris",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/web",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace @cadris/web",
+    "build:web": "npm run build --workspace @cadris/web",
+    "lint:web": "npm run lint --workspace @cadris/web",
+    "typecheck:web": "npm run typecheck --workspace @cadris/web",
+    "start:local": "scripts\\start-local.cmd",
+    "start:local:openai": "scripts\\start-local.cmd -Provider openai",
+    "stop:local": "scripts\\stop-local.cmd",
+    "open:local:windows": "scripts\\open-local-dev.cmd",
+    "open:local:fast": "scripts\\start-local.cmd",
+    "check:local": "scripts\\check-local.cmd"
+  }
+}
