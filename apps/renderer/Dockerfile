@@ -3,7 +3,16 @@ FROM python:3.13-slim
 WORKDIR /app
 
 COPY pyproject.toml .
-RUN pip install --no-cache-dir .
+
+# pycairo/svglib need C compiler + cairo dev libs
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libcairo2-dev \
+    pkg-config \
+  && pip install --no-cache-dir . \
+  && apt-get purge -y gcc pkg-config \
+  && apt-get autoremove -y \
+  && rm -rf /var/lib/apt/lists/*
 
 COPY app/ app/
 
