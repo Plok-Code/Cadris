@@ -134,7 +134,7 @@ app.add_exception_handler(Exception, unhandled_exception_handler)
 
 @app.get("/health")
 async def healthcheck():
-    return {"ok": True, "databaseUrl": settings.database_url}
+    return {"ok": True}
 
 
 @app.get("/api/projects", response_model=list[ProjectSummary])
