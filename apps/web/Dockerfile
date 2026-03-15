@@ -19,7 +19,7 @@ WORKDIR /app
 # Copy entire node_modules tree (workspaces hoist everything to root)
 COPY --from=deps /app/node_modules ./node_modules
 
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/schemas/ packages/schemas/
 COPY packages/client-sdk/ packages/client-sdk/
 COPY apps/web/ apps/web/
