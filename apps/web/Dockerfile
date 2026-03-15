@@ -8,7 +8,8 @@ COPY packages/schemas/package.json packages/schemas/
 COPY packages/client-sdk/package.json packages/client-sdk/
 COPY apps/web/package.json apps/web/
 
-RUN npm ci --workspace=@cadris/web --include-workspace-root
+# Install ALL dependencies (including devDependencies needed for build)
+RUN npm ci
 
 # ---- Build stage ----
 FROM node:20-alpine AS build

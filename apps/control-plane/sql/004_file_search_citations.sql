@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS citations (
     excerpt TEXT NOT NULL,
     locator TEXT,
     score REAL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_citations_mission_id ON citations(mission_id);

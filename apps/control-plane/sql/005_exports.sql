@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS exports (
     token TEXT UNIQUE,                                    -- share link token (null if not shared)
     file_url TEXT,                                        -- URL of rendered file if applicable
     revoked BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     revoked_at TEXT
 );
 
