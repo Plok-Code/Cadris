@@ -2,23 +2,21 @@ FROM node:20-alpine AS deps
 
 WORKDIR /app
 
-# Copy root workspace files
+# Copy root workspace files + all workspace package.json
 COPY package.json package-lock.json ./
 COPY packages/schemas/package.json packages/schemas/
 COPY packages/client-sdk/package.json packages/client-sdk/
 COPY apps/web/package.json apps/web/
 
-RUN npm ci
+RUN npm ci --workspace=@cadris/web --include-workspace-root
 
 # ---- Build stage ----
 FROM node:20-alpine AS build
 
 WORKDIR /app
 
+# Copy entire node_modules tree (workspaces hoist everything to root)
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/packages/schemas/node_modules ./packages/schemas/node_modules
-COPY --from=deps /app/packages/client-sdk/node_modules ./packages/client-sdk/node_modules
-COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
 
 COPY package.json package-lock.json ./
 COPY packages/schemas/ packages/schemas/
