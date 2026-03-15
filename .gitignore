@@ -20,5 +20,4 @@ apps/control-plane/data/uploads/
 .tmp-logs/
 .DS_Store
 .env
-package-lock.json
 .claude/worktrees/
