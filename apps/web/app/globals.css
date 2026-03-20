@@ -679,6 +679,31 @@ button {
   border-color: var(--ds-accent-default);
 }
 
+.mission__template-select {
+  margin-top: var(--ds-space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+}
+
+.mission__template-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--ds-text-secondary);
+  white-space: nowrap;
+}
+
+.mission__template-dropdown {
+  flex: 1;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border: 1px solid var(--ds-border-default);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-bg-canvas);
+  color: var(--ds-text-primary);
+  font-size: 0.875rem;
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
 .mission__intake-submit {
   margin-top: var(--ds-space-5);
   font-family: var(--font-sans), system-ui, sans-serif;

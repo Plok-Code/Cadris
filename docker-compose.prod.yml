@@ -53,9 +53,13 @@ services:
       dockerfile: apps/runtime/Dockerfile
     restart: unless-stopped
     environment:
-      CADRIS_RUNTIME_PROVIDER: ${CADRIS_RUNTIME_PROVIDER:-openai}
-      CADRIS_OPENAI_MODEL: ${CADRIS_OPENAI_MODEL:-gpt-4o}
+      CADRIS_RUNTIME_PROVIDER: ${CADRIS_RUNTIME_PROVIDER:-collaborative}
+      CADRIS_MODEL_PROFILE: ${CADRIS_MODEL_PROFILE:-prod}
+      CADRIS_OPENAI_MODEL: ${CADRIS_OPENAI_MODEL:-gpt-4.1}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      TOGETHER_API_KEY: ${TOGETHER_API_KEY:-}
+      PERPLEXITY_API_KEY: ${PERPLEXITY_API_KEY:-}
+      CADRIS_RUNTIME_STATE_DB_URL: ${CONTROL_PLANE_DATABASE_URL:-}
     deploy:
       resources:
         limits:
