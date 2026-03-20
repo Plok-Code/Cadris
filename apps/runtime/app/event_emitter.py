@@ -33,8 +33,8 @@ class EventEmitter:
             yield f"event: {event.type}\\ndata: ...\\n\\n"
     """
 
-    def __init__(self) -> None:
-        self._queue: asyncio.Queue[SSEEvent | object] = asyncio.Queue()
+    def __init__(self, maxsize: int = 200) -> None:
+        self._queue: asyncio.Queue[SSEEvent | object] = asyncio.Queue(maxsize=maxsize)
         self._closed = False
 
     async def emit(self, event_type: EventType, data: dict) -> None:

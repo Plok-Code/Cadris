@@ -94,10 +94,10 @@ PlanCode = Literal["free", "starter", "pro", "expert"]
 class RuntimeStartRequest(BaseModel):
     mission_id: str
     project_name: str
-    intake_text: str = Field(min_length=20)
+    intake_text: str = Field(min_length=20, max_length=50_000)
     flow_code: FlowCode = "demarrage"
     plan: PlanCode = "free"
-    supporting_inputs: list[RuntimeInputItem] = Field(default_factory=list)
+    supporting_inputs: list[RuntimeInputItem] = Field(default_factory=list, max_length=20)
 
 
 class RuntimeStartResponse(BaseModel):
@@ -114,8 +114,8 @@ class RuntimeStartResponse(BaseModel):
 class RuntimeResumeRequest(BaseModel):
     mission_id: str
     project_name: str
-    intake_text: str
-    answer_text: str = Field(default="")
+    intake_text: str = Field(max_length=50_000)
+    answer_text: str = Field(default="", max_length=20_000)
     flow_code: FlowCode = "demarrage"
     plan: PlanCode = "free"
     cycle_number: int = 1

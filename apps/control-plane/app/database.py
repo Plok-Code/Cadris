@@ -15,11 +15,14 @@ def _default_database_url() -> str:
 
 DATABASE_URL = os.getenv("CONTROL_PLANE_DATABASE_URL", _default_database_url())
 
+_is_sqlite = DATABASE_URL.startswith("sqlite")
+
 engine = create_engine(
     DATABASE_URL,
     future=True,
     pool_pre_ping=True,
-    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
+    connect_args={"check_same_thread": False} if _is_sqlite else {},
+    **({} if _is_sqlite else {"pool_recycle": 300}),
 )
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
@@ -27,7 +30,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expi
 
 @event.listens_for(Engine, "connect")
 def _set_sqlite_pragma(dbapi_connection, connection_record):  # type: ignore[no-untyped-def]
-    if DATABASE_URL.startswith("sqlite"):
+    if _is_sqlite:
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()

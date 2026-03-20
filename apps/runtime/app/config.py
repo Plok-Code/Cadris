@@ -30,6 +30,7 @@ class Settings(BaseModel):
     openai_model: str = Field(default=os.getenv("CADRIS_OPENAI_MODEL", "gpt-4.1-nano"))
     openai_api_key: str | None = Field(default=os.getenv("OPENAI_API_KEY"))
     together_api_key: str | None = Field(default=os.getenv("TOGETHER_API_KEY"))
+    perplexity_api_key: str | None = Field(default=os.getenv("PERPLEXITY_API_KEY"))
     model_profile: Literal["dev", "prod"] = Field(
         default=os.getenv("CADRIS_MODEL_PROFILE", "dev")
     )

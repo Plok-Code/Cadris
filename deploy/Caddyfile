@@ -1,0 +1,33 @@
+# Cadris production Caddyfile
+# Replace app.cadris.fr with your domain
+# Caddy auto-provisions HTTPS via Let's Encrypt
+
+{$CADRIS_DOMAIN:app.cadris.fr} {
+	# Frontend (Next.js)
+	reverse_proxy web:3000
+
+	# API proxy — control-plane endpoints
+	handle /api/auth/* {
+		reverse_proxy control-plane:8000
+	}
+
+	handle /api/billing/* {
+		reverse_proxy control-plane:8000
+	}
+
+	# Health check
+	handle /health {
+		reverse_proxy control-plane:8000
+	}
+
+	# Security headers
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	# Gzip
+	encode gzip
+}

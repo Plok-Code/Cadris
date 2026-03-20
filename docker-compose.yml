@@ -15,7 +15,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      CONTROL_PLANE_DATABASE_URL: postgresql://cadris:cadris_dev@postgres:5432/cadris
+      CONTROL_PLANE_DATABASE_URL: ${CONTROL_PLANE_DATABASE_URL:-postgresql://cadris:cadris_dev@postgres:5432/cadris}
       CONTROL_PLANE_RUNTIME_URL: http://runtime:8001
       CONTROL_PLANE_RENDERER_URL: http://renderer:8002
       CONTROL_PLANE_ALLOWED_ORIGINS: http://localhost:3000,http://127.0.0.1:3000

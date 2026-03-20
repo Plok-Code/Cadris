@@ -28,12 +28,12 @@ function createTrustedProxySignature({
   return createHmac("sha256", secret).update(payload).digest("hex");
 }
 
-export function buildControlPlaneAuthHeaders({
+export async function buildControlPlaneAuthHeaders({
   userId,
   userEmail,
   method,
   path
-}: TrustedHeaderParams): Record<string, string> {
+}: TrustedHeaderParams): Promise<Record<string, string>> {
   const headers: Record<string, string> = {
     "x-cadris-user-id": userId
   };

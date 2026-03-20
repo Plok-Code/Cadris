@@ -48,7 +48,7 @@ async function proxyToControlPlane(req: Request): Promise<Response> {
   });
 
   // Inject authenticated user info
-  const authHeaders = buildControlPlaneAuthHeaders({
+  const authHeaders = await buildControlPlaneAuthHeaders({
     userId: session.user.id,
     userEmail: session.user.email,
     method: req.method,

@@ -120,6 +120,10 @@ export function MissionWorkspace({
       eyebrow="Mission"
       heading={mission ? `Mission ${mission.flowLabel}` : "Mission"}
       description="La mission reste synthese-first. L'utilisateur arbitre au bon moment, puis le systeme met a jour les artefacts et le dossier."
+      breadcrumbs={[
+        { label: "Mes projets", href: "/projects" },
+        { label: mission ? mission.title : "Mission" },
+      ]}
     >
       {isLoading ? (
         <div className="loading-state">Chargement de la mission...</div>

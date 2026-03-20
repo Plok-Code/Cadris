@@ -90,6 +90,7 @@ export function ProjectsWorkspace() {
                   }}
                   disabled={deletingId === m.id}
                   title="Supprimer ce cadrage"
+                  aria-label="Supprimer ce cadrage"
                   type="button"
                 >
                   {deletingId === m.id ? "..." : "✕"}

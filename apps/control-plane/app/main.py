@@ -1131,6 +1131,73 @@ async def get_dossier_pdf(
 
 
 # ---------------------------------------------------------------------------
+# PPTX export (Expert plan)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/missions/{mission_id}/dossier/pptx")
+async def get_dossier_pptx(
+    mission_id: str,
+    user: AuthenticatedUser = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    """Generate a PowerPoint presentation from the dossier sections."""
+    from pptx import Presentation
+    from pptx.util import Inches, Pt
+    from pptx.dml.color import RGBColor
+
+    repository = ControlPlaneRepository(session)
+    dossier = repository.get_dossier_for_user(user.id, mission_id)
+    if not dossier:
+        raise AppError.not_found("dossier_not_found", "Dossier not found.")
+
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+
+    # Title slide
+    slide = prs.slides.add_slide(prs.slide_layouts[0])
+    slide.shapes.title.text = dossier.title
+    if slide.placeholders[1]:
+        slide.placeholders[1].text = dossier.summary
+
+    # One slide per section
+    for section in dossier.sections:
+        slide = prs.slides.add_slide(prs.slide_layouts[1])
+        slide.shapes.title.text = section.title
+        body = slide.placeholders[1]
+        tf = body.text_frame
+        tf.word_wrap = True
+        # Truncate long content to fit a slide
+        content = section.content[:2000] if len(section.content) > 2000 else section.content
+        tf.text = content
+        for paragraph in tf.paragraphs:
+            paragraph.font.size = Pt(14)
+
+    # Summary slide
+    slide = prs.slides.add_slide(prs.slide_layouts[1])
+    slide.shapes.title.text = "Synthese"
+    body = slide.placeholders[1]
+    body.text_frame.text = dossier.summary
+
+    buffer = io.BytesIO()
+    prs.save(buffer)
+    buffer.seek(0)
+
+    repository.create_export(
+        export_id=str(uuid4()),
+        mission_id=mission_id,
+        format="PPTX",
+    )
+
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": f'attachment; filename="cadris-{mission_id}.pptx"'},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Markdown export
 # ---------------------------------------------------------------------------
 
@@ -1479,4 +1546,156 @@ async def billing_webhook(request: Request, session: Session = Depends(get_sessi
     except Exception as e:
         logger.error("webhook processing error: %s", e, exc_info=True)
         raise AppError.internal("webhook_error", "Webhook processing failed.")
+
+
+# ── Logo generation (Expert plan) ──────────────────────────────
+
+
+class LogoGenerateRequest(BaseModel):
+    project_name: str
+    project_brief: str
+    num_variants: int = 3
+
+
+@app.post("/api/missions/{mission_id}/logo")
+async def generate_mission_logo(
+    mission_id: str,
+    body: LogoGenerateRequest,
+    user: AuthenticatedUser = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    """Generate logo variants for a mission (Expert plan only)."""
+    from . import repository as repo
+
+    mission = repo.get_mission(mission_id, session)
+    if not mission:
+        raise AppError.not_found("mission_not_found", "Mission non trouvee.")
+    if mission.project.user_id != user.id:
+        raise AppError.forbidden("not_owner", "Acces refuse.")
+
+    db_user = repo.get_user(user.id)
+    if not db_user or db_user.plan not in ("expert",):
+        raise AppError.forbidden("plan_required", "La generation de logo necessite le plan Expert.")
+
+    import httpx as httpx_client
+    from openai import AsyncOpenAI
+
+    openai_key = settings.openai_api_key if hasattr(settings, "openai_api_key") else None
+    if not openai_key:
+        openai_key = __import__("os").environ.get("OPENAI_API_KEY")
+    if not openai_key:
+        raise AppError.internal("openai_not_configured", "OpenAI n'est pas configure.")
+
+    client = AsyncOpenAI(api_key=openai_key)
+    brief = body.project_brief[:200]
+    num = min(max(body.num_variants, 1), 4)
+
+    styles = [
+        ("modern_minimalist", "Clean, modern, minimalist logo"),
+        ("geometric_abstract", "Abstract geometric shapes, bold colors"),
+        ("professional_corporate", "Professional, corporate, trustworthy"),
+        ("playful_startup", "Playful, vibrant, startup-friendly"),
+    ][:num]
+
+    logos = []
+    for style_key, style_desc in styles:
+        prompt = (
+            f"Create a professional logo for '{body.project_name}'. "
+            f"Project: {brief}. Style: {style_desc}. "
+            "The logo should work on white and dark backgrounds. "
+            "Square format, centered."
+        )
+        try:
+            response = await client.images.generate(
+                model="dall-e-3",
+                prompt=prompt,
+                size="1024x1024",
+                quality="standard",
+                n=1,
+            )
+            image = response.data[0]
+            logos.append({
+                "url": image.url,
+                "revised_prompt": image.revised_prompt or prompt,
+                "style": style_key,
+            })
+        except Exception as exc:
+            logger.warning("Logo generation failed for style '%s': %s", style_key, exc)
+
+    return {"logos": logos, "count": len(logos)}
+
+
+# ── Dossier templates ──────────────────────────────────────────
+
+DOSSIER_TEMPLATES = {
+    "standard": {
+        "id": "standard",
+        "name": "Standard",
+        "description": "Cadrage complet avec les 22 sections par defaut.",
+        "sections": None,  # all sections
+    },
+    "startup_pitch": {
+        "id": "startup_pitch",
+        "name": "Startup Pitch",
+        "description": "Deck oriente investisseurs : vision, marche, business model, MVP.",
+        "sections": [
+            "vision_produit", "problem_statement", "icp_personas", "value_proposition",
+            "market_analysis", "business_model", "pricing_strategy",
+            "mvp_definition", "architecture", "executive_summary",
+        ],
+    },
+    "internal_project": {
+        "id": "internal_project",
+        "name": "Projet interne",
+        "description": "Dossier pour un projet interne d'entreprise : specs, tech, planning.",
+        "sections": [
+            "vision_produit", "problem_statement", "scope_document",
+            "prd", "user_stories", "feature_specs",
+            "architecture", "tech_stack", "data_model", "api_spec",
+            "implementation_plan", "executive_summary",
+        ],
+    },
+    "rfp_response": {
+        "id": "rfp_response",
+        "name": "Appel d'offres",
+        "description": "Reponse structuree a un appel d'offres ou cahier des charges.",
+        "sections": [
+            "vision_produit", "problem_statement", "value_proposition",
+            "scope_document", "mvp_definition", "prd",
+            "architecture", "tech_stack", "nfr_security",
+            "ux_principles", "design_system",
+            "dossier_consolide", "executive_summary",
+        ],
+    },
+    "business_plan": {
+        "id": "business_plan",
+        "name": "Business Plan",
+        "description": "Plan d'affaires complet : marche, financier, strategie, operations.",
+        "sections": [
+            "vision_produit", "problem_statement", "icp_personas", "value_proposition",
+            "market_analysis", "business_model", "pricing_strategy",
+            "scope_document", "mvp_definition",
+            "architecture", "tech_stack",
+            "implementation_plan", "executive_summary", "dossier_consolide",
+        ],
+    },
+}
+
+
+@app.get("/api/dossier-templates")
+async def list_dossier_templates(user: AuthenticatedUser = Depends(require_user)):
+    """List available dossier templates."""
+    return {"templates": list(DOSSIER_TEMPLATES.values())}
+
+
+@app.get("/api/dossier-templates/{template_id}")
+async def get_dossier_template(
+    template_id: str,
+    user: AuthenticatedUser = Depends(require_user),
+):
+    """Get a specific dossier template."""
+    template = DOSSIER_TEMPLATES.get(template_id)
+    if not template:
+        raise AppError.not_found("template_not_found", "Template non trouve.")
+    return template
 
