@@ -30,7 +30,7 @@ export function DossierWorkspace({
   const [downloadingFormat, setDownloadingFormat] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
-  const handleDownload = async (format: "markdown" | "pdf") => {
+  const handleDownload = async (format: "markdown" | "pdf" | "pptx") => {
     if (downloadingFormat) return;
     setDownloadingFormat(format);
     setDownloadError(null);
@@ -38,10 +38,12 @@ export function DossierWorkspace({
     const urlMap = {
       markdown: cadrisApi.getDossierMarkdownUrl(missionId),
       pdf: cadrisApi.getDossierPdfUrl(missionId),
+      pptx: cadrisApi.getDossierPptxUrl(missionId),
     };
     const filenameMap = {
       markdown: `cadris-${missionId}-md.zip`,
       pdf: `cadris-${missionId}.pdf`,
+      pptx: `cadris-${missionId}.pptx`,
     };
 
     try {
@@ -132,6 +134,11 @@ export function DossierWorkspace({
       eyebrow="Dossier"
       heading={dossier?.title ?? "Dossier"}
       description={dossier?.summary ?? ""}
+      breadcrumbs={[
+        { label: "Mes projets", href: "/projects" },
+        { label: "Mission", href: `/missions/${missionId}` },
+        { label: "Dossier" },
+      ]}
     >
       {isLoading ? (
         <div className="loading-state">Chargement du dossier...</div>
@@ -183,6 +190,14 @@ export function DossierWorkspace({
                   type="button"
                 >
                   {downloadingFormat === "pdf" ? "Telechargement..." : "Telecharger PDF"}
+                </button>
+                <button
+                  className="dossier__export-btn dossier__export-btn--secondary"
+                  onClick={() => handleDownload("pptx")}
+                  disabled={downloadingFormat !== null}
+                  type="button"
+                >
+                  {downloadingFormat === "pptx" ? "Telechargement..." : "Telecharger PPTX"}
                 </button>
                 {downloadError && (
                   <p style={{ color: "var(--ds-status-danger-fg, #e74c3c)", fontSize: "0.8125rem", marginTop: 8 }}>

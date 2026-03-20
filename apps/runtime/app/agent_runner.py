@@ -26,6 +26,7 @@ from .memory import DocumentDraft, MissionMemory
 from .model_config import ModelChoice, get_model_for_agent
 from .prompt_loader import load_prompt
 from .config import settings
+from .web_research import research_for_agent
 
 
 @dataclass
@@ -334,6 +335,9 @@ async def run_agent(
     # 2b. Build qualification context
     qualification_context = _build_qualification_context(memory)
 
+    # 2c. Web research (Pro/Expert plans — Perplexity)
+    web_research_context = await research_for_agent(spec.code, memory.intake_text, plan)
+
     # 3. Compose the task
     task_parts = [
         f"## Contexte projet\n{memory.intake_text}",
@@ -342,6 +346,8 @@ async def run_agent(
         task_parts.append(qualification_context)
     if questions_context:
         task_parts.append(questions_context)
+    if web_research_context:
+        task_parts.append(web_research_context)
     task_parts.append(f"## Travail des autres agents\n{other_agents_context}")
 
     # Inject user corrections/feedback from previous iterations
@@ -373,6 +379,8 @@ async def run_agent(
     current_task = task
     output = None
 
+    AGENT_TIMEOUT = 300  # 5 minutes per agent call
+
     for attempt in range(1, max_retries + 1):
         try:
             agent = Agent(
@@ -382,8 +390,9 @@ async def run_agent(
                 output_type=spec.output_model,
             )
             streamed = Runner.run_streamed(agent, current_task, run_config=run_config)
-            async for _event in streamed.stream_events():
-                pass  # consume the stream to completion
+            async with asyncio.timeout(AGENT_TIMEOUT):
+                async for _event in streamed.stream_events():
+                    pass  # consume the stream to completion
             output = streamed.final_output_as(spec.output_model)
             break
         except Exception as exc:

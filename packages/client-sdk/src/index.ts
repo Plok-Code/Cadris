@@ -86,6 +86,10 @@ export class CadrisApiClient {
     return `${this.options.baseUrl}/api/missions/${missionId}/dossier/markdown`;
   }
 
+  getDossierPptxUrl(missionId: string): string {
+    return `${this.options.baseUrl}/api/missions/${missionId}/dossier/pptx`;
+  }
+
   getDossierZipUrl(missionId: string): string {
     return `${this.options.baseUrl}/api/missions/${missionId}/dossier/zip`;
   }
@@ -119,6 +123,29 @@ export class CadrisApiClient {
 
   downloadInputUrl(missionId: string, inputId: string): string {
     return `${this.options.baseUrl}/api/missions/${missionId}/inputs/${inputId}/download`;
+  }
+
+  // ── Logo generation (Expert plan) ──────────────────────────
+
+  generateLogo(missionId: string, body: { project_name: string; project_brief: string; num_variants?: number }) {
+    return this.request<{ logos: Array<{ url: string; revised_prompt: string; style: string }>; count: number }>(
+      `/api/missions/${missionId}/logo`,
+      { method: "POST", body: JSON.stringify(body) }
+    );
+  }
+
+  // ── Dossier templates ─────────────────────────────────────
+
+  listDossierTemplates() {
+    return this.request<{ templates: Array<{ id: string; name: string; description: string; sections: string[] | null }> }>(
+      `/api/dossier-templates`
+    );
+  }
+
+  getDossierTemplate(templateId: string) {
+    return this.request<{ id: string; name: string; description: string; sections: string[] | null }>(
+      `/api/dossier-templates/${templateId}`
+    );
   }
 
   /**

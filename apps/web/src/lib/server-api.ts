@@ -11,7 +11,7 @@ async function serverRequest<T>(path: string): Promise<T> {
   }
 
   const response = await fetch(`${baseUrl}${path}`, {
-    headers: buildControlPlaneAuthHeaders({
+    headers: await buildControlPlaneAuthHeaders({
       userId: session.user.id,
       userEmail: session.user.email,
       method: "GET",

@@ -42,7 +42,7 @@ def run_sql_migrations(engine: Engine, sql_dir: Path) -> None:
                         except Exception as exc:
                             # SQLite doesn't support IF NOT EXISTS for ALTER TABLE.
                             # Skip "duplicate column" errors from idempotent migrations.
-                            if "duplicate column" in str(exc).lower():
+                            if "duplicate column" in str(exc).lower() or "already exists" in str(exc).lower():
                                 logger.info("Skipping (column already exists): %s", statement[:80])
                             else:
                                 raise

@@ -95,6 +95,7 @@ export default function MissionPage() {
 
   const [phase, setPhase] = useState<Phase>("intake");
   const [intakeText, setIntakeText] = useState("");
+  const [selectedTemplate, setSelectedTemplate] = useState("standard");
   const [agents, setAgents] = useState<Record<string, AgentState>>({});
   const [documents, setDocuments] = useState<DocumentState[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -127,7 +128,7 @@ export default function MissionPage() {
   const [downloadingFormat, setDownloadingFormat] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
-  const handleDownload = async (format: "markdown" | "pdf") => {
+  const handleDownload = async (format: "markdown" | "pdf" | "pptx") => {
     if (!missionId || downloadingFormat) return;
     setDownloadingFormat(format);
     setDownloadError(null);
@@ -135,10 +136,12 @@ export default function MissionPage() {
     const urlMap = {
       markdown: cadrisApi.getDossierMarkdownUrl(missionId),
       pdf: cadrisApi.getDossierPdfUrl(missionId),
+      pptx: cadrisApi.getDossierPptxUrl(missionId),
     };
     const filenameMap = {
       markdown: `cadris-${missionId}-md.zip`,
       pdf: `cadris-${missionId}-pdf.zip`,
+      pptx: `cadris-${missionId}.pptx`,
     };
 
     try {
@@ -572,6 +575,23 @@ export default function MissionPage() {
             onChange={(e) => setIntakeText(e.target.value)}
             rows={6}
           />
+          <div className="mission__template-select">
+            <label className="mission__template-label" htmlFor="template">
+              Format du dossier
+            </label>
+            <select
+              id="template"
+              className="mission__template-dropdown"
+              value={selectedTemplate}
+              onChange={(e) => setSelectedTemplate(e.target.value)}
+            >
+              <option value="standard">Standard (22 sections)</option>
+              <option value="startup_pitch">Startup Pitch (investisseurs)</option>
+              <option value="internal_project">Projet interne (specs + tech)</option>
+              <option value="rfp_response">Appel d&apos;offres</option>
+              <option value="business_plan">Business Plan</option>
+            </select>
+          </div>
           <button
             className="mission__intake-submit"
             onClick={handleLaunch}
@@ -1020,6 +1040,14 @@ export default function MissionPage() {
                   type="button"
                 >
                   {downloadingFormat === "pdf" ? "Telechargement..." : "Telecharger PDF"}
+                </button>
+                <button
+                  className="dossier__export-btn dossier__export-btn--secondary"
+                  onClick={() => handleDownload("pptx")}
+                  disabled={downloadingFormat !== null}
+                  type="button"
+                >
+                  {downloadingFormat === "pptx" ? "Telechargement..." : "Telecharger PPTX"}
                 </button>
                 {downloadError && (
                   <p style={{ color: "var(--ds-status-danger-fg, #e74c3c)", fontSize: "0.8125rem", marginTop: 8 }}>
