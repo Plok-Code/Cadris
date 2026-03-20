@@ -185,7 +185,8 @@ class CreateMissionRequest(ApiModel):
 
 
 class AnswerQuestionRequest(ApiModel):
-    answer_text: str = Field(min_length=10, max_length=5000)
+    answer_text: str = Field(default="", max_length=5000)
+    action: Literal["refine_wave", "next_wave", "answer_qualification"] = "next_wave"
 
 
 class UploadMissionInputResponse(ApiModel):
@@ -224,11 +225,15 @@ class AnswerQuestionResponse(ApiModel):
     dossier: DossierReadModel | None = None
 
 
+PlanCode = Literal["free", "starter", "pro", "expert"]
+
+
 class RuntimeStartRequest(ApiModel):
     mission_id: str
     project_name: str
     intake_text: str
     flow_code: FlowCode = "demarrage"
+    plan: PlanCode = "free"
     supporting_inputs: list[RuntimeInputItem] = Field(default_factory=list)
 
 
@@ -247,11 +252,13 @@ class RuntimeResumeRequest(ApiModel):
     mission_id: str
     project_name: str
     intake_text: str
-    answer_text: str
+    answer_text: str = ""
     flow_code: FlowCode = "demarrage"
+    plan: PlanCode = "free"
     cycle_number: int = 1
     previous_answers: list[str] = Field(default_factory=list)
     supporting_inputs: list[RuntimeInputItem] = Field(default_factory=list)
+    action: Literal["refine_wave", "next_wave", "answer_qualification"] = "next_wave"
 
 
 class RuntimeResumeResponse(ApiModel):

@@ -88,6 +88,7 @@ class DossierSection(BaseModel):
 
 
 FlowCode = Literal["demarrage", "projet_flou", "pivot"]
+PlanCode = Literal["free", "starter", "pro", "expert"]
 
 
 class RuntimeStartRequest(BaseModel):
@@ -95,6 +96,7 @@ class RuntimeStartRequest(BaseModel):
     project_name: str
     intake_text: str = Field(min_length=20)
     flow_code: FlowCode = "demarrage"
+    plan: PlanCode = "free"
     supporting_inputs: list[RuntimeInputItem] = Field(default_factory=list)
 
 
@@ -113,11 +115,13 @@ class RuntimeResumeRequest(BaseModel):
     mission_id: str
     project_name: str
     intake_text: str
-    answer_text: str = Field(min_length=10)
+    answer_text: str = Field(default="")
     flow_code: FlowCode = "demarrage"
+    plan: PlanCode = "free"
     cycle_number: int = 1
     previous_answers: list[str] = Field(default_factory=list)
     supporting_inputs: list[RuntimeInputItem] = Field(default_factory=list)
+    action: Literal["refine_wave", "next_wave", "answer_qualification"] = "next_wave"
 
 
 class RuntimeResumeResponse(BaseModel):

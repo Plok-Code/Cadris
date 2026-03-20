@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from .config import settings
+from .collaborative_engine import CollaborativeEngine
 from .local_engine import LocalRuntimeEngine
 from .models import (
     RuntimeResumeRequest,
@@ -24,6 +25,8 @@ class RuntimeEngine(Protocol):
 
 
 def create_runtime_engine() -> RuntimeEngine:
+    if settings.provider == "collaborative":
+        return CollaborativeEngine()
     if settings.provider == "openai":
         return OpenAIRuntimeEngine(model=settings.openai_model, api_key=settings.openai_api_key)
     return LocalRuntimeEngine()

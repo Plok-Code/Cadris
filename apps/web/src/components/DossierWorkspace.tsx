@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { DossierReadModel, ExportReadModel } from "@cadris/schemas";
 import { AppShell } from "./AppShell";
 import { cadrisApi } from "../lib/api";
@@ -24,6 +26,49 @@ export function DossierWorkspace({
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [exports, setExports] = useState<ExportReadModel[]>([]);
   const [isSharePending, startShareTransition] = useTransition();
+  const [selectedSection, setSelectedSection] = useState<string | null>(null);
+  const [downloadingFormat, setDownloadingFormat] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  const handleDownload = async (format: "markdown" | "pdf") => {
+    if (downloadingFormat) return;
+    setDownloadingFormat(format);
+    setDownloadError(null);
+
+    const urlMap = {
+      markdown: cadrisApi.getDossierMarkdownUrl(missionId),
+      pdf: cadrisApi.getDossierPdfUrl(missionId),
+    };
+    const filenameMap = {
+      markdown: `cadris-${missionId}-md.zip`,
+      pdf: `cadris-${missionId}.pdf`,
+    };
+
+    try {
+      const response = await fetch(urlMap[format], { credentials: "include" });
+      if (!response.ok) {
+        const ct = response.headers.get("content-type") ?? "";
+        if (ct.includes("application/json")) {
+          const body = await response.json();
+          throw new Error(body.message ?? `Erreur ${response.status}`);
+        }
+        throw new Error(`Erreur de telechargement (${response.status})`);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filenameMap[format];
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : "Erreur de telechargement");
+    } finally {
+      setDownloadingFormat(null);
+    }
+  };
 
   useEffect(() => {
     if (initialDossier || initialError) {
@@ -71,11 +116,22 @@ export function DossierWorkspace({
       .catch(() => {});
   }
 
+  // Reorder sections: put user_guide first so it's prominent
+  const orderedSections = dossier?.sections
+    ? [
+        ...dossier.sections.filter((s) => s.id === "user_guide"),
+        ...dossier.sections.filter((s) => s.id !== "user_guide"),
+      ]
+    : [];
+
+  // Find selected section content
+  const activeSection = orderedSections.find((s) => s.id === selectedSection) ?? orderedSections[0] ?? null;
+
   return (
     <AppShell
       eyebrow="Dossier"
-      heading="Premier dossier markdown"
-      description="Le dossier reste une vue rendue du canonique. Ici, l'objectif est de montrer une premiere sortie lisible et exploitable."
+      heading={dossier?.title ?? "Dossier"}
+      description={dossier?.summary ?? ""}
     >
       {isLoading ? (
         <div className="loading-state">Chargement du dossier...</div>
@@ -84,125 +140,81 @@ export function DossierWorkspace({
       ) : !dossier ? (
         <div className="empty-state">Aucun dossier disponible pour cette mission.</div>
       ) : (
-        <div className="page-grid page-grid--two-columns">
-          <section className="panel">
-            <div className="section-heading">
-              <div className="section-eyebrow">Qualite</div>
-              <h2 className="section-title">{dossier.title}</h2>
-              <p className="section-description">{dossier.summary}</p>
-            </div>
+        <>
+          <div className="dossier-page">
+            {/* Sticky sidebar */}
+            <aside className="dossier-page__sidebar">
+              <h3 className="dossier__sidebar-title">Sommaire</h3>
+              <nav className="dossier__nav">
+                {orderedSections.map((section, i) => (
+                  <button
+                    key={section.id}
+                    className={`dossier__nav-item ${
+                      (selectedSection ?? orderedSections[0]?.id) === section.id
+                        ? "dossier__nav-item--active"
+                        : ""
+                    }`}
+                    onClick={() => setSelectedSection(section.id)}
+                  >
+                    <span className="dossier__nav-num">{i + 1}</span>
+                    <span className="dossier__nav-title">{section.title}</span>
+                    {section.id === "user_guide" && (
+                      <span className="dossier__nav-badge">À lire en premier</span>
+                    )}
+                    <span className={`dossier__nav-cert dossier__nav-cert--${section.certainty}`} />
+                  </button>
+                ))}
+              </nav>
 
-            <div className="label-row">
-              <span className="status-tag status-tag--accent">{dossier.qualityLabel}</span>
-              <span className="status-tag status-tag--neutral">
-                Mis a jour <ClientDateTime value={dossier.updatedAt} />
-              </span>
-            </div>
-
-            <div className="label-row">
-              <a
-                href={cadrisApi.getDossierPdfUrl(missionId)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="status-tag status-tag--accent"
-                style={{ textDecoration: "none", cursor: "pointer" }}
-              >
-                Telecharger PDF
-              </a>
-              <a
-                href={cadrisApi.getDossierMarkdownUrl(missionId)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="status-tag status-tag--neutral"
-                style={{ textDecoration: "none", cursor: "pointer" }}
-              >
-                Telecharger Markdown
-              </a>
-              <button
-                className="status-tag status-tag--accent"
-                disabled={isSharePending}
-                onClick={handleCreateShareLink}
-                style={{ cursor: "pointer", border: "none" }}
-                type="button"
-              >
-                {isSharePending ? "Creation..." : "Creer un lien de partage"}
-              </button>
-            </div>
-
-            {shareUrl ? (
-              <div className="notice" style={{ wordBreak: "break-all" }}>
-                Lien de partage : <a href={shareUrl} target="_blank" rel="noopener noreferrer">{shareUrl}</a>
+              {/* Export buttons — in sidebar, same as mission page */}
+              <div className="dossier__export">
+                <button
+                  className="dossier__export-btn"
+                  onClick={() => handleDownload("markdown")}
+                  disabled={downloadingFormat !== null}
+                  type="button"
+                >
+                  {downloadingFormat === "markdown" ? "Telechargement..." : "Telecharger MD"}
+                </button>
+                <button
+                  className="dossier__export-btn dossier__export-btn--secondary"
+                  onClick={() => handleDownload("pdf")}
+                  disabled={downloadingFormat !== null}
+                  type="button"
+                >
+                  {downloadingFormat === "pdf" ? "Telechargement..." : "Telecharger PDF"}
+                </button>
+                {downloadError && (
+                  <p style={{ color: "var(--ds-status-danger-fg, #e74c3c)", fontSize: "0.8125rem", marginTop: 8 }}>
+                    {downloadError}
+                  </p>
+                )}
               </div>
-            ) : null}
+            </aside>
 
-            <div className="markdown">
-              {dossier.markdown.split("\n\n").map((block, index) => {
-                if (block.startsWith("# ")) {
-                  return <h1 key={index}>{block.replace("# ", "")}</h1>;
-                }
-                if (block.startsWith("## ")) {
-                  return <h2 key={index}>{block.replace("## ", "")}</h2>;
-                }
-                if (block === "---") {
-                  return <hr key={index} />;
-                }
-                if (block.startsWith("*") && block.endsWith("*")) {
-                  return <p key={index} style={{ fontStyle: "italic", color: "#999" }}>{block.replace(/\*/g, "")}</p>;
-                }
-                if (block.startsWith("**")) {
-                  return <p key={index}><strong>{block.replace(/\*\*/g, "")}</strong></p>;
-                }
-                return <p key={index}>{block}</p>;
-              })}
-            </div>
-          </section>
-
-          <aside className="stack">
-            {dossier.sections.map((section) => (
-              <article className="dossier-section" key={section.id}>
-                <div className="project-card__header">
-                  <strong>{section.title}</strong>
-                  <StatusTag code={section.certainty} />
-                </div>
-                <p className="section-description">{section.content}</p>
-              </article>
-            ))}
-
-            {exports.length > 0 ? (
-              <article className="panel">
-                <div className="section-heading">
-                  <div className="section-eyebrow">Exports</div>
-                  <h2 className="section-title">Historique des exports</h2>
-                </div>
-                <div className="stack stack--dense">
-                  {exports.map((exp) => (
-                    <div className="timeline-card" key={exp.id}>
-                      <div className="project-card__header">
-                        <strong>{exp.format}</strong>
-                        <span className={`status-tag status-tag--${exp.revoked ? "danger" : "neutral"}`}>
-                          {exp.revoked ? "Revoque" : "Actif"}
-                        </span>
-                      </div>
-                      <span className="status-tag status-tag--neutral">
-                        <ClientDateTime value={exp.createdAt} />
-                      </span>
-                      {exp.token && !exp.revoked ? (
-                        <button
-                          className="status-tag status-tag--neutral"
-                          onClick={() => handleRevokeExport(exp.id)}
-                          style={{ cursor: "pointer", border: "none", marginTop: "0.25rem" }}
-                          type="button"
-                        >
-                          Revoquer
-                        </button>
-                      ) : null}
+            {/* Main content — scrollable */}
+            <section className="dossier-page__content">
+              {activeSection && (
+                <>
+                  {activeSection.id === "user_guide" && (
+                    <div className="dossier__guide-banner">
+                      <strong>À lire en premier</strong> — Ce guide vous accompagne pas a pas pour lancer votre projet avec Claude Code.
                     </div>
-                  ))}
-                </div>
-              </article>
-            ) : null}
-          </aside>
-        </div>
+                  )}
+                  <div className="dossier__doc-header">
+                    <h2 className="dossier__doc-title">{activeSection.title}</h2>
+                    <StatusTag code={activeSection.certainty} />
+                  </div>
+                  <div className="dossier__doc-content markdown-body">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {activeSection.content}
+                    </ReactMarkdown>
+                  </div>
+                </>
+              )}
+            </section>
+          </div>
+        </>
       )}
     </AppShell>
   );

@@ -26,14 +26,11 @@ export function AppShell({ heading, description, eyebrow, children }: AppShellPr
             </div>
           </div>
           <div className="top-nav__links">
-            <NavLink href="/projects" isActive={pathname.startsWith("/projects")}>
+            <NavLink href="/mission" isActive={pathname === "/mission"}>
+              Nouveau cadrage
+            </NavLink>
+            <NavLink href="/projects" isActive={pathname.startsWith("/projects") || pathname.startsWith("/dossiers")}>
               Mes projets
-            </NavLink>
-            <NavLink href="/projects" isActive={pathname.startsWith("/missions")}>
-              Mission
-            </NavLink>
-            <NavLink href="/projects" isActive={pathname.startsWith("/dossiers")}>
-              Dossier
             </NavLink>
           </div>
         </nav>

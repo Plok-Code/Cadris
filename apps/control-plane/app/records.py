@@ -18,7 +18,12 @@ class UserRecord(Base):
 
     id: Mapped[str] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(unique=True)
-    plan: Mapped[str] = mapped_column(default="core")
+    name: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    plan: Mapped[str] = mapped_column(default="free")
+    stripe_customer_id: Mapped[str | None] = mapped_column(Text(), nullable=True, index=True)
+    plan_expires_at: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    missions_this_month: Mapped[int] = mapped_column(Integer, default=0)
+    month_reset_at: Mapped[str | None] = mapped_column(Text(), nullable=True)
     created_at: Mapped[str] = mapped_column(default=utc_now)
 
     projects: Mapped[list["ProjectRecord"]] = relationship(back_populates="user")

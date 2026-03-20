@@ -6,10 +6,19 @@ from uuid import uuid4
 from fastapi import Depends, FastAPI, File, Request, Response, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from sqlalchemy.orm import Session
 from .auth import AuthenticatedUser, require_user
+from .billing import (
+    PLANS,
+    check_mission_limit,
+    create_checkout_session,
+    create_portal_session,
+    handle_webhook,
+    increment_mission_count,
+)
 from .config import settings
 from .database import engine, get_session
 from .errors import AppError
@@ -146,6 +155,31 @@ async def list_projects(
     return repository.list_projects_for_user(user.id)
 
 
+@app.get("/api/missions")
+async def list_missions(
+    user: AuthenticatedUser = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    """List all missions for the authenticated user (most recent first)."""
+    repository = ControlPlaneRepository(session)
+    return repository.list_missions_for_user(user.id)
+
+
+@app.delete("/api/missions/{mission_id}", status_code=204)
+async def delete_mission(
+    mission_id: str,
+    user: AuthenticatedUser = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    """Delete a mission and its dossier (user must own it)."""
+    repository = ControlPlaneRepository(session)
+    mission = repository.get_mission_for_user(user.id, mission_id)
+    if not mission:
+        raise AppError.not_found("mission_not_found", "Mission not found.")
+    repository.delete_mission(mission_id)
+    return Response(status_code=204)
+
+
 @app.post("/api/projects", response_model=ProjectSummary, status_code=status.HTTP_201_CREATED)
 async def create_project(
     payload: CreateProjectRequest,
@@ -181,6 +215,9 @@ async def create_mission(
     flow_code = payload.flow_code
     flow_label = FLOW_LABELS.get(flow_code, flow_code)
 
+    db_user = repository.get_user(user.id)
+    user_plan = db_user.plan if db_user else "free"
+
     mission_id = f"mission_{uuid4().hex[:10]}"
     runtime_response = await runtime_client.start_mission(
         RuntimeStartRequest(
@@ -188,6 +225,7 @@ async def create_mission(
             project_name=project.name,
             intake_text=payload.intake_text.strip(),
             flow_code=flow_code,
+            plan=user_plan,
             supporting_inputs=[],
         )
     )
@@ -242,6 +280,254 @@ async def create_mission(
     return CreateMissionResponse(project=updated_project, mission=persisted_mission)
 
 
+# ── SSE streaming helpers ──────────────────────────────────
+
+
+def _persist_dossier_from_docs(
+    db_session: Session,
+    mission_id: str,
+    collected_docs: dict[str, dict],
+    *,
+    is_final: bool = False,
+) -> None:
+    """Build and persist a DossierReadModel from streamed document_updated events.
+
+    Merges new docs with any existing dossier sections from previous waves,
+    so the final dossier contains ALL documents across all waves.
+    """
+    from .models import DossierSection as DossierSectionModel
+
+    if not collected_docs:
+        return
+    try:
+        repo = ControlPlaneRepository(db_session)
+
+        # Load existing sections from previous waves (if any)
+        existing_dossier = repo.get_dossier(mission_id)
+        existing_map: dict[str, DossierSectionModel] = {}
+        if existing_dossier:
+            for s in existing_dossier.sections:
+                existing_map[s.id] = s
+
+        # Merge: new docs override existing ones with same id
+        for doc_id, doc in collected_docs.items():
+            existing_map[doc_id] = DossierSectionModel(
+                id=doc_id,
+                title=doc.get("title", doc_id),
+                content=doc.get("content", ""),
+                certainty=doc.get("certainty", "unknown"),
+            )
+
+        sections = list(existing_map.values())
+
+        # Build combined markdown
+        md_parts = ["# Dossier de cadrage\n"]
+        for s in sections:
+            md_parts.append(f"## {s.title}\n\n{s.content}\n")
+        markdown = "\n".join(md_parts)
+
+        dossier = DossierReadModel(
+            mission_id=mission_id,
+            title="Dossier de cadrage",
+            quality_label="",
+            summary="Dossier genere par les agents Cadris.",
+            markdown=markdown,
+            sections=sections,
+            updated_at=utc_now(),
+        )
+        repo.upsert_dossier(dossier)
+
+        if is_final:
+            # Mark mission as completed with dossier_ready
+            from .records import MissionRecord
+            record = db_session.get(MissionRecord, mission_id)
+            if record:
+                record.status = "completed"
+                record.dossier_ready = True
+                db_session.commit()
+
+        logger.info("persisted dossier for mission %s (%d sections, final=%s)", mission_id, len(sections), is_final)
+    except Exception:
+        logger.error("failed to persist dossier for mission %s", mission_id, exc_info=True)
+
+
+# ── SSE streaming endpoint ─────────────────────────────────
+
+
+@app.post("/api/missions/run")
+async def run_mission_stream(
+    payload: CreateMissionRequest,
+    user: AuthenticatedUser = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    """Launch a collaborative mission and stream SSE events to the client.
+
+    This creates the project + mission inline, then streams real-time
+    events from the runtime's collaborative engine (wave 1 only).
+    """
+    import json
+    from .models import TimelineItem as TLI
+
+    repository = ControlPlaneRepository(session)
+
+    # ── Plan enforcement: check mission limit ──
+    db_user = repository.get_user(user.id)
+    if db_user and not check_mission_limit(db_user):
+        raise AppError.forbidden(
+            "Vous avez atteint la limite de missions pour votre plan. "
+            "Passez au plan Pro pour des missions illimitees."
+        )
+
+    # Auto-create a project for now (simplified flow)
+    projects = repository.list_projects_for_user(user.id)
+    if projects:
+        project = projects[0]
+    else:
+        project = repository.create_project(
+            user_id=user.id,
+            project_id=f"project_{uuid4().hex[:10]}",
+            name="Mon projet",
+        )
+
+    mission_id = f"mission_{uuid4().hex[:10]}"
+
+    # Persist a minimal mission record so the resume endpoint can load it
+    repository.upsert_mission(MissionReadModel(
+        id=mission_id,
+        project_id=project.id,
+        flow_code=payload.flow_code,
+        flow_label="Nouveau projet",
+        title="Mission de cadrage",
+        status="in_progress",
+        summary="Mission en cours de cadrage.",
+        next_step="Les agents travaillent...",
+        intake_text=payload.intake_text.strip(),
+        artifact_blocks=[],
+        active_question=None,
+        timeline=[
+            TLI(id="wave1", label="Strategie", status="in_progress"),
+            TLI(id="wave2", label="Business & Produit", status="not_started"),
+            TLI(id="wave3", label="Tech & Design", status="not_started"),
+            TLI(id="wave4", label="Consolidation", status="not_started"),
+        ],
+        dossier_ready=False,
+    ))
+
+    # Update project with active mission
+    repository.update_project_after_mission(
+        project_id=project.id,
+        active_mission_id=mission_id,
+        active_mission_status="in_progress",
+        mission_delta=1,
+    )
+
+    # Increment mission counter for plan enforcement
+    if db_user:
+        increment_mission_count(db_user, session)
+
+    async def event_generator():
+        # Emit initial event with mission ID
+        yield f"event: mission_created\ndata: {json.dumps({'mission_id': mission_id, 'project_id': project.id})}\n\n"
+
+        collected_docs: dict[str, dict] = {}
+        try:
+            user_plan = db_user.plan if db_user else "free"
+            async for event in runtime_client.start_mission_stream(
+                RuntimeStartRequest(
+                    mission_id=mission_id,
+                    project_name=project.name,
+                    intake_text=payload.intake_text.strip(),
+                    flow_code=payload.flow_code,
+                    plan=user_plan,
+                    supporting_inputs=[],
+                )
+            ):
+                if event["event"] == "document_updated":
+                    d = event["data"]
+                    collected_docs[d.get("doc_id", "")] = d
+                elif event["event"] == "wave_completed":
+                    # Persist docs after each wave so we accumulate across waves
+                    _persist_dossier_from_docs(session, mission_id, collected_docs)
+                elif event["event"] == "mission_completed":
+                    _persist_dossier_from_docs(session, mission_id, collected_docs, is_final=True)
+                yield f"event: {event['event']}\ndata: {json.dumps(event['data'], ensure_ascii=False)}\n\n"
+        except Exception as exc:
+            logger.error("SSE stream error: %s", exc, exc_info=True)
+            yield f"event: error\ndata: {json.dumps({'error': str(exc)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.post("/api/missions/{mission_id}/resume")
+async def resume_mission_stream(
+    mission_id: str,
+    payload: AnswerQuestionRequest,
+    user: AuthenticatedUser = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    """Resume a wave-based mission with user answer/validation and stream SSE events.
+
+    Actions:
+    - action="refine_wave": re-run current wave with user's additional context
+    - action="next_wave": validate current wave and advance to next
+    """
+    import json
+
+    repository = ControlPlaneRepository(session)
+    mission = repository.get_mission_for_user(user.id, mission_id)
+    if not mission:
+        raise AppError.not_found("mission_not_found", "Mission not found.")
+
+    project_id = mission.project_id
+
+    db_user = repository.get_user(user.id)
+    user_plan = db_user.plan if db_user else "free"
+
+    async def event_generator():
+        collected_docs: dict[str, dict] = {}
+        try:
+            async for event in runtime_client.resume_mission_stream(
+                RuntimeResumeRequest(
+                    mission_id=mission_id,
+                    project_name="Mon projet",
+                    intake_text=mission.intake_text,
+                    answer_text=payload.answer_text.strip() if payload.answer_text else "",
+                    flow_code=mission.flow_code,
+                    plan=user_plan,
+                    action=payload.action,
+                )
+            ):
+                if event["event"] == "document_updated":
+                    d = event["data"]
+                    collected_docs[d.get("doc_id", "")] = d
+                elif event["event"] == "wave_completed":
+                    _persist_dossier_from_docs(session, mission_id, collected_docs)
+                elif event["event"] == "mission_completed":
+                    _persist_dossier_from_docs(session, mission_id, collected_docs, is_final=True)
+                yield f"event: {event['event']}\ndata: {json.dumps(event['data'], ensure_ascii=False)}\n\n"
+        except Exception as exc:
+            logger.error("SSE resume stream error: %s", exc, exc_info=True)
+            yield f"event: error\ndata: {json.dumps({'error': str(exc)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @app.get("/api/missions/{mission_id}", response_model=MissionReadModel)
 async def get_mission(
     mission_id: str,
@@ -273,6 +559,9 @@ async def answer_question(
     if not project:
         raise AppError.not_found("project_not_found", "Project not found.")
 
+    db_user = repository.get_user(user.id)
+    user_plan = db_user.plan if db_user else "free"
+
     answered_questions = [q for q in mission.question_history if q.status == "answered"]
     cycle_number = len(answered_questions) + 1
     previous_answers = [q.answer_text for q in answered_questions if q.answer_text]
@@ -291,6 +580,7 @@ async def answer_question(
                 intake_text=mission.intake_text,
                 answer_text=payload.answer_text.strip(),
                 flow_code=mission.flow_code,
+                plan=user_plan,
                 cycle_number=cycle_number,
                 previous_answers=previous_answers,
                 supporting_inputs=to_runtime_inputs(mission.inputs),
@@ -547,45 +837,97 @@ async def get_dossier(
     return dossier
 
 
+_PDF_CSS = """
+@page { size: A4; margin: 2cm; }
+body {
+    font-family: Helvetica, Arial, sans-serif;
+    font-size: 10pt;
+    line-height: 1.6;
+    color: #1a1a2e;
+}
+h1 { font-size: 18pt; color: #16213e; border-bottom: 2px solid #0f3460; padding-bottom: 6pt; margin-bottom: 12pt; }
+h2 { font-size: 13pt; color: #0f3460; margin-top: 16pt; margin-bottom: 6pt; }
+h3 { font-size: 11pt; color: #16213e; margin-top: 12pt; margin-bottom: 4pt; }
+p { margin-bottom: 8pt; }
+ul, ol { margin-bottom: 8pt; padding-left: 20pt; }
+li { margin-bottom: 3pt; }
+table { width: 100%; border-collapse: collapse; margin-bottom: 10pt; font-size: 9pt; }
+th, td { border: 1px solid #ccc; padding: 4pt 6pt; text-align: left; vertical-align: top; }
+th { background: #f0f4f8; font-weight: bold; color: #0f3460; }
+code { font-family: Courier; font-size: 8pt; background: #f0f4f8; padding: 1pt 3pt; }
+pre { background: #f0f4f8; padding: 6pt 10pt; font-size: 8pt; margin-bottom: 8pt; }
+pre code { background: none; padding: 0; }
+blockquote { border-left: 3pt solid #0f3460; margin: 8pt 0; padding: 4pt 10pt; color: #555; background: #f8f9fa; }
+.footer { margin-top: 20pt; padding-top: 6pt; border-top: 1px solid #ddd; font-size: 7pt; color: #999; }
+"""
+
+
+def _md_to_pdf_bytes(title: str, content: str) -> bytes:
+    """Convert a markdown document to PDF via HTML (supports tables, accents, formatting)."""
+    import markdown as md_lib
+    from xhtml2pdf import pisa
+
+    # Convert markdown to HTML with GFM extensions
+    html_body = md_lib.markdown(
+        content,
+        extensions=["tables", "fenced_code", "nl2br", "sane_lists"],
+    )
+
+    html = f"""<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="utf-8"><style>{_PDF_CSS}</style></head>
+<body>
+<h1>{title}</h1>
+{html_body}
+<div class="footer">Genere par Cadris</div>
+</body>
+</html>"""
+
+    buffer = io.BytesIO()
+    pisa.CreatePDF(html, dest=buffer)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
 @app.get("/api/missions/{mission_id}/dossier/pdf")
 async def get_dossier_pdf(
     mission_id: str,
     user: AuthenticatedUser = Depends(require_user),
     session: Session = Depends(get_session),
 ):
+    """Download all docs as a ZIP of individual PDF files."""
     repository = ControlPlaneRepository(session)
     dossier = repository.get_dossier_for_user(user.id, mission_id)
     if not dossier:
         raise AppError.not_found("dossier_not_found", "Dossier not found.")
 
-    from .models import DossierSection as DossierSectionModel
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for section in dossier.sections:
+            zip_path = DOC_ID_TO_ZIP_PATH.get(section.id)
+            if zip_path:
+                pdf_path = zip_path.replace(".md", ".pdf")
+            else:
+                pdf_path = f"{section.id}.pdf"
+            try:
+                pdf_bytes = _md_to_pdf_bytes(section.title, section.content)
+                zf.writestr(pdf_path, pdf_bytes)
+            except Exception as exc:
+                logger.warning("PDF generation failed for %s: %s", section.id, exc)
+                # Fallback: include as .md
+                zf.writestr(pdf_path.replace(".pdf", ".md"), f"# {section.title}\n\n{section.content}")
+    buffer.seek(0)
 
-    pdf_bytes = await renderer_client.render_pdf(
-        RendererRequest(
-            title=dossier.title,
-            summary=dossier.summary,
-            quality_label=dossier.quality_label,
-            sections=[
-                DossierSectionModel(
-                    id=s.id, title=s.title, content=s.content, certainty=s.certainty
-                )
-                for s in dossier.sections
-            ],
-        )
+    repository.create_export(
+        export_id=str(uuid4()),
+        mission_id=mission_id,
+        format="PDF",
     )
-    if not pdf_bytes or not pdf_bytes[:5] == b"%PDF-":
-        logger.error("Renderer returned non-PDF response for mission %s", mission_id)
-        return JSONResponse(
-            status_code=503,
-            content={
-                "error": "pdf_generation_failed",
-                "message": "La generation PDF a echoue. Le dossier reste disponible en markdown et HTML.",
-            },
-        )
+
     return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="dossier-{mission_id}.pdf"'},
+        content=buffer.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="cadris-{mission_id}-pdf.zip"'},
     )
 
 
@@ -600,10 +942,28 @@ async def get_dossier_markdown(
     user: AuthenticatedUser = Depends(require_user),
     session: Session = Depends(get_session),
 ):
+    """Download all docs as a ZIP of .md files, organized by folder."""
     repository = ControlPlaneRepository(session)
     dossier = repository.get_dossier_for_user(user.id, mission_id)
     if not dossier:
         raise AppError.not_found("dossier_not_found", "Dossier not found.")
+
+    # Build zip of .md files — files at root, no wrapper folder
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for section in dossier.sections:
+            zip_path = DOC_ID_TO_ZIP_PATH.get(section.id)
+            # Only prepend title if content doesn't already start with a heading
+            raw = section.content.strip()
+            if raw.startswith("#"):
+                content = raw
+            else:
+                content = f"# {section.title}\n\n{raw}"
+            if zip_path:
+                zf.writestr(zip_path, content)
+            else:
+                zf.writestr(f"{section.id}.md", content)
+    buffer.seek(0)
 
     repository.create_export(
         export_id=str(uuid4()),
@@ -612,9 +972,80 @@ async def get_dossier_markdown(
     )
 
     return Response(
-        content=dossier.markdown,
-        media_type="text/markdown; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="dossier-{mission_id}.md"'},
+        content=buffer.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="cadris-{mission_id}-md.zip"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Zip export (Claude Code ready)
+# ---------------------------------------------------------------------------
+
+import zipfile
+import io
+
+DOC_ID_TO_ZIP_PATH = {
+    "implementation_plan": "CLAUDE.md",
+    "user_guide": "user_guide.md",
+    "executive_summary": "executive_summary.md",
+    "vision_produit": "01-strategy/vision_produit.md",
+    "problem_statement": "01-strategy/problem_statement.md",
+    "icp_personas": "01-strategy/icp_personas.md",
+    "value_proposition": "01-strategy/value_proposition.md",
+    "business_model": "02-business/business_model.md",
+    "pricing_strategy": "02-business/pricing_strategy.md",
+    "market_analysis": "02-business/market_analysis.md",
+    "scope_document": "03-product/scope_document.md",
+    "mvp_definition": "03-product/mvp_definition.md",
+    "prd": "03-product/prd.md",
+    "user_stories": "03-product/user_stories.md",
+    "feature_specs": "03-product/feature_specs.md",
+    "architecture": "04-technical/architecture.md",
+    "tech_stack": "04-technical/tech_stack.md",
+    "data_model": "04-technical/data_model.md",
+    "api_spec": "04-technical/api_spec.md",
+    "nfr_security": "04-technical/nfr_security.md",
+    "ux_principles": "05-design/ux_principles.md",
+    "information_architecture": "05-design/information_architecture.md",
+    "design_system": "05-design/design_system.md",
+    "dossier_consolide": "06-synthesis/dossier_consolide.md",
+}
+
+
+@app.get("/api/missions/{mission_id}/dossier/zip")
+async def get_dossier_zip(
+    mission_id: str,
+    user: AuthenticatedUser = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    repository = ControlPlaneRepository(session)
+    dossier = repository.get_dossier_for_user(user.id, mission_id)
+    if not dossier:
+        raise AppError.not_found("dossier_not_found", "Dossier not found.")
+
+    # Build zip in memory — files at root, no wrapper folder
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for section in dossier.sections:
+            zip_path = DOC_ID_TO_ZIP_PATH.get(section.id)
+            if zip_path:
+                raw = section.content.strip()
+                content = raw if raw.startswith("#") else f"# {section.title}\n\n{raw}"
+                zf.writestr(zip_path, content)
+
+    buffer.seek(0)
+
+    repository.create_export(
+        export_id=str(uuid4()),
+        mission_id=mission_id,
+        format="Zip",
+    )
+
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="cadris-{mission_id}.zip"'},
     )
 
 
@@ -751,4 +1182,101 @@ def build_shared_html(payload: RendererRequest) -> str:
 <head><meta charset="utf-8"><title>{payload.title} — Cadris</title><style>{css}</style></head>
 <body>{body}</body>
 </html>"""
+
+
+# ── Billing endpoints ──────────────────────────────────────────
+
+
+@app.get("/api/billing/plans")
+async def get_billing_plans(
+    user: AuthenticatedUser = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    """Return available plans with the user's current plan."""
+    from .repository import ControlPlaneRepository
+    repo = ControlPlaneRepository(session)
+    db_user = repo.get_user(user.id)
+
+    plans_out = []
+    for plan_name, plan_info in PLANS.items():
+        plans_out.append({
+            "name": plan_name,
+            "label": plan_info["label"],
+            "missions_per_month": plan_info["missions_per_month"],
+            "has_price": plan_info["price_id"] is not None,
+        })
+
+    return {
+        "current_plan": db_user.plan if db_user else "free",
+        "missions_this_month": db_user.missions_this_month if db_user else 0,
+        "plans": plans_out,
+    }
+
+
+class CheckoutRequest(BaseModel):
+    plan: str
+
+
+@app.post("/api/billing/checkout")
+async def billing_checkout(
+    payload: CheckoutRequest,
+    user: AuthenticatedUser = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    """Create a Stripe Checkout session for a plan upgrade."""
+    from .repository import ControlPlaneRepository
+    repo = ControlPlaneRepository(session)
+
+    if not settings.stripe_secret_key:
+        raise AppError.internal("stripe_not_configured", "Stripe n'est pas configure.")
+
+    plan_info = PLANS.get(payload.plan)
+    if not plan_info or not plan_info["price_id"]:
+        raise AppError.validation("invalid_plan", f"Plan '{payload.plan}' invalide ou gratuit.")
+
+    db_user = repo.get_user(user.id)
+    if not db_user:
+        raise AppError.not_found("user_not_found", "Utilisateur non trouve.")
+
+    url = create_checkout_session(db_user, plan_info["price_id"], session)
+    return {"url": url}
+
+
+@app.post("/api/billing/portal")
+async def billing_portal(
+    user: AuthenticatedUser = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    """Create a Stripe Customer Portal session."""
+    from .repository import ControlPlaneRepository
+    repo = ControlPlaneRepository(session)
+
+    if not settings.stripe_secret_key:
+        raise AppError.internal("stripe_not_configured", "Stripe n'est pas configure.")
+
+    db_user = repo.get_user(user.id)
+    if not db_user:
+        raise AppError.not_found("user_not_found", "Utilisateur non trouve.")
+
+    if not db_user.stripe_customer_id:
+        raise AppError.validation("no_subscription", "Aucun abonnement actif.")
+
+    url = create_portal_session(db_user, session)
+    return {"url": url}
+
+
+@app.post("/api/billing/webhook")
+async def billing_webhook(request: Request, session: Session = Depends(get_session)):
+    """Handle Stripe webhook events. No auth required (verified by signature)."""
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature", "")
+
+    try:
+        result = handle_webhook(payload, sig_header, session)
+        return result
+    except ValueError as e:
+        raise AppError.validation("webhook_error", str(e))
+    except Exception as e:
+        logger.error("webhook processing error: %s", e, exc_info=True)
+        raise AppError.internal("webhook_error", "Webhook processing failed.")
 

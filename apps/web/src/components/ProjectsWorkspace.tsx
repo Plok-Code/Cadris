@@ -1,253 +1,110 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
-import type { FlowCode, ProjectSummary } from "@cadris/schemas";
-import { flowLabels, flowDescriptions } from "@cadris/schemas";
+import { useEffect, useState } from "react";
+import type { MissionListItem } from "@cadris/schemas";
 import { AppShell } from "./AppShell";
 import { cadrisApi } from "../lib/api";
 import { ClientDateTime } from "./ClientDateTime";
-import { StatusTag } from "./StatusTag";
 
-interface ProjectsWorkspaceProps {
-  initialProjects?: ProjectSummary[];
-  initialError?: string | null;
-}
-
-export function ProjectsWorkspace({ initialProjects = [], initialError = null }: ProjectsWorkspaceProps) {
-  const router = useRouter();
-  const [projects, setProjects] = useState<ProjectSummary[]>(initialProjects);
-  const [draftIntakes, setDraftIntakes] = useState<Record<string, string>>({});
-  const [draftFlows, setDraftFlows] = useState<Record<string, FlowCode>>({});
-  const [name, setName] = useState("");
-  const [error, setError] = useState<string | null>(initialError);
-  const [isPending, startTransition] = useTransition();
-  const [isLoading, setIsLoading] = useState(initialProjects.length === 0 && !initialError);
+export function ProjectsWorkspace() {
+  const [missions, setMissions] = useState<MissionListItem[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (initialProjects.length > 0 || initialError) {
-      setIsLoading(false);
-      return;
-    }
     void cadrisApi
-      .listProjects()
-      .then(setProjects)
-      .catch((loadError) => {
-        setError(loadError instanceof Error ? loadError.message : "Impossible de charger les projets.");
+      .listMissions()
+      .then(setMissions)
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Impossible de charger vos projets.");
       })
-      .finally(() => {
-        setIsLoading(false);
-      });
-  }, [initialError, initialProjects.length]);
+      .finally(() => setIsLoading(false));
+  }, []);
 
-  function handleCreateProject(formData: FormData) {
-    const nextName = String(formData.get("name") ?? "").trim();
-    if (!nextName) {
-      setError("Le nom du projet est requis.");
-      return;
+  const handleDelete = async (missionId: string) => {
+    if (!confirm("Supprimer ce cadrage ? Cette action est irreversible.")) return;
+    setDeletingId(missionId);
+    try {
+      await cadrisApi.deleteMission(missionId);
+      setMissions((prev) => prev.filter((m) => m.id !== missionId));
+    } catch {
+      setError("Impossible de supprimer ce cadrage.");
+    } finally {
+      setDeletingId(null);
     }
+  };
 
-    startTransition(() => {
-      void cadrisApi
-        .createProject({ name: nextName })
-        .then((project) => {
-          setProjects((current) => [project, ...current]);
-          setDraftIntakes((current) => ({
-            ...current,
-            [project.id]:
-              "Je construis un SaaS qui aide les createurs de projets a cadrer leur strategie, leur MVP et leur execution sans se perdre dans le flou."
-          }));
-          setName("");
-          setError(null);
-        })
-        .catch((createError) => {
-          setError(createError instanceof Error ? createError.message : "Creation du projet impossible.");
-        });
-    });
-  }
-
-  function handleCreateMission(projectId: string) {
-    const intakeText = (draftIntakes[projectId] ?? "").trim();
-    if (!intakeText) {
-      setError("L'intake libre est requis pour ouvrir une mission.");
-      return;
-    }
-    const flowCode = draftFlows[projectId] ?? "demarrage";
-
-    startTransition(() => {
-      void cadrisApi
-        .createMission(projectId, { intakeText, flowCode })
-        .then((response) => {
-          setProjects((current) =>
-            current.map((project) => (project.id === response.project.id ? response.project : project))
-          );
-          setError(null);
-          router.push(`/missions/${response.mission.id}`);
-        })
-        .catch((createError) => {
-          setError(createError instanceof Error ? createError.message : "Ouverture de mission impossible.");
-        });
-    });
-  }
+  const completed = missions.filter((m) => m.dossierReady);
 
   return (
     <AppShell
-      eyebrow="Premiere tranche verticale"
+      eyebrow="Compte"
       heading="Mes projets"
-      description="Cree un projet, choisis un type de mission, puis laisse Cadris structurer une premiere boucle de cadrage avant le dossier."
+      description={
+        completed.length > 0
+          ? `${completed.length} cadrage${completed.length > 1 ? "s" : ""} termine${completed.length > 1 ? "s" : ""}`
+          : "Retrouvez vos cadrages ici."
+      }
     >
-      <div className="page-grid page-grid--two-columns">
-        <section className="panel">
-          <div className="section-heading">
-            <div className="section-eyebrow">Creation</div>
-            <h2 className="section-title">Lancer un nouveau cadrage</h2>
-            <p className="section-description">
-              Demarre simple. Un nom de projet suffit ici. L&apos;intake libre texte arrive juste apres.
-            </p>
-          </div>
-
-          <form action={handleCreateProject} className="stack" suppressHydrationWarning>
-            <label className="stack stack--dense">
-              <span>Nom du projet</span>
-              <input
-                className="text-field"
-                name="name"
-                suppressHydrationWarning
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Exemple : SaaS de cadrage pour createurs de projets"
-              />
-            </label>
-            <div className="button-row">
-              <button className="button" disabled={isPending} type="submit">
-                {isPending ? "Creation..." : "Creer le projet"}
-              </button>
-            </div>
-          </form>
-
-          {error ? <div className="notice">{error}</div> : null}
-        </section>
-
-        <aside className="panel">
-          <div className="section-heading">
-            <div className="section-eyebrow">Cap produit</div>
-            <h2 className="section-title">Ce que cette tranche prouve</h2>
-          </div>
-          <div className="stack stack--dense">
-            <div className="timeline-card">
-              <strong>1. Projet</strong>
-              <span>Creation du conteneur canonique.</span>
-            </div>
-            <div className="timeline-card">
-              <strong>2. Mission</strong>
-              <span>Demarrage resserre avec intake libre.</span>
-            </div>
-            <div className="timeline-card">
-              <strong>3. Dossier</strong>
-              <span>Premier rendu markdown lisible depuis le canonique.</span>
-            </div>
-          </div>
-        </aside>
-      </div>
-
-      <section className="panel">
-        <div className="section-heading">
-          <div className="section-eyebrow">Workspace</div>
-          <h2 className="section-title">Projets actifs</h2>
+      {isLoading ? (
+        <div className="projects__loading">
+          <div className="mission__spinner" />
+          <p>Chargement...</p>
         </div>
-
-        {isLoading ? (
-          <div className="loading-state">Chargement des projets...</div>
-        ) : projects.length === 0 ? (
-          <div className="empty-state">Aucun projet encore. Cree le premier pour lancer la mission.</div>
-        ) : (
-          <div className="card-list">
-            {projects.map((project) => (
-              <article className="project-card" key={project.id}>
-                <div className="project-card__header">
-                  <div className="stack stack--dense">
-                    <strong>{project.name}</strong>
-                    <span className="mono">{project.id}</span>
+      ) : error ? (
+        <div className="notice">{error}</div>
+      ) : completed.length === 0 ? (
+        <div className="projects__empty">
+          <div className="projects__empty-icon">📋</div>
+          <h2 className="projects__empty-title">Aucun cadrage pour le moment</h2>
+          <p className="projects__empty-text">
+            Decrivez votre idee de projet et nos agents IA produiront un dossier de cadrage complet en quelques minutes.
+          </p>
+          <Link href="/mission" className="projects__cta">
+            Lancer mon premier cadrage
+          </Link>
+        </div>
+      ) : (
+        <div className="projects__content">
+          <div className="projects__list">
+            {completed.map((m) => (
+              <div key={m.id} className="projects__row">
+                <Link href={`/dossiers/${m.id}`} className="projects__row-link">
+                  <div className="projects__row-main">
+                    <p className="projects__row-desc">{m.intakeText || "Cadrage de projet"}</p>
+                    <div className="projects__row-meta">
+                      <span className="projects__row-docs">{m.sectionCount} docs</span>
+                      <span className="projects__row-sep">·</span>
+                      <span className="projects__row-date"><ClientDateTime value={m.createdAt} /></span>
+                    </div>
                   </div>
-                  {project.activeMissionStatus ? <StatusTag code={project.activeMissionStatus} /> : null}
-                </div>
-
-                <div className="label-row">
-                  <span className="status-tag status-tag--neutral">{project.missionCount} mission(s)</span>
-                  <span className="status-tag status-tag--neutral">
-                    Mis a jour <ClientDateTime value={project.updatedAt} />
-                  </span>
-                </div>
-
-                <div className="button-row">
-                  {project.activeMissionId ? (
-                    <>
-                      <Link className="button" href={`/missions/${project.activeMissionId}`}>
-                        {project.activeMissionStatus === "completed" ? "Voir la mission" : "Reprendre la mission"}
-                      </Link>
-                      {project.activeMissionStatus === "completed" ? (
-                        <Link className="button button--secondary" href={`/dossiers/${project.activeMissionId}`}>
-                          Lire le dossier
-                        </Link>
-                      ) : null}
-                    </>
-                  ) : (
-                    <button
-                      className="button"
-                      disabled={isPending}
-                      onClick={() => handleCreateMission(project.id)}
-                      type="button"
-                    >
-                      Ouvrir une mission
-                    </button>
-                  )}
-                </div>
-
-                {!project.activeMissionId ? (
-                  <>
-                  <label className="stack stack--dense">
-                    <span>Type de mission</span>
-                    <select
-                      className="text-field"
-                      value={draftFlows[project.id] ?? "demarrage"}
-                      onChange={(event) =>
-                        setDraftFlows((current) => ({
-                          ...current,
-                          [project.id]: event.target.value as FlowCode
-                        }))
-                      }
-                    >
-                      {(Object.keys(flowLabels) as FlowCode[]).map((code) => (
-                        <option key={code} value={code}>{flowLabels[code]}</option>
-                      ))}
-                    </select>
-                    <span className="section-description">
-                      {flowDescriptions[draftFlows[project.id] ?? "demarrage"]}
-                    </span>
-                  </label>
-                  <label className="stack stack--dense">
-                    <span>Intake libre pour {flowLabels[draftFlows[project.id] ?? "demarrage"]}</span>
-                    <textarea
-                      className="text-area"
-                      suppressHydrationWarning
-                      value={draftIntakes[project.id] ?? ""}
-                      onChange={(event) =>
-                        setDraftIntakes((current) => ({
-                          ...current,
-                          [project.id]: event.target.value
-                        }))
-                      }
-                      placeholder="Explique ton projet avec tes mots. L'important est d'etre concret, pas d'etre complet."
-                    />
-                  </label>
-                  </>
-                ) : null}
-              </article>
+                  <span className="projects__row-action">Voir le dossier →</span>
+                </Link>
+                <button
+                  className="projects__row-delete"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDelete(m.id);
+                  }}
+                  disabled={deletingId === m.id}
+                  title="Supprimer ce cadrage"
+                  type="button"
+                >
+                  {deletingId === m.id ? "..." : "✕"}
+                </button>
+              </div>
             ))}
           </div>
-        )}
-      </section>
+
+          <div className="projects__footer">
+            <Link href="/mission" className="projects__cta">
+              + Nouveau cadrage
+            </Link>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

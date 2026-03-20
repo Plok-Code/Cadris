@@ -1,6 +1,7 @@
 .git
 .claude
 node_modules
+.venv
 __pycache__
 *.pyc
 .next
@@ -10,3 +11,6 @@ __pycache__
 doc/
 *.db
 data/
+.turbo
+dist/
+coverage/

@@ -13,6 +13,7 @@ class PromptTemplate:
 
 
 PROMPT_PATHS: dict[str, Path] = {
+    # ── Legacy per-flow prompts ──────────────────────────────
     # Demarrage
     "demarrage/supervisor/start": Path("demarrage/supervisor_start.md"),
     "demarrage/supervisor/resume": Path("demarrage/supervisor_resume.md"),
@@ -28,6 +29,15 @@ PROMPT_PATHS: dict[str, Path] = {
     "pivot/supervisor/resume": Path("pivot/supervisor_resume.md"),
     "pivot/strategy/core": Path("pivot/strategy_agent.md"),
     "pivot/product/core": Path("pivot/product_agent.md"),
+    # ── Collaborative agent prompts (universal, not per-flow) ─
+    "agents/strategy_agent": Path("agents/strategy_agent.md"),
+    "agents/product_agent": Path("agents/product_agent.md"),
+    "agents/tech_agent": Path("agents/tech_agent.md"),
+    "agents/design_agent": Path("agents/design_agent.md"),
+    "agents/business_agent": Path("agents/business_agent.md"),
+    "agents/consolidation_agent": Path("agents/consolidation_agent.md"),
+    "agents/critic_agent": Path("agents/critic_agent.md"),
+    "agents/qualifier_agent": Path("agents/qualifier_agent.md"),
 }
 
 

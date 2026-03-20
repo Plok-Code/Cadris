@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from .database import DATABASE_URL
+
+# Load .env from the control-plane root directory
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
 class Settings(BaseModel):
@@ -12,7 +16,7 @@ class Settings(BaseModel):
     allowed_origins: list[str] = Field(
         default_factory=lambda: os.getenv(
             "CONTROL_PLANE_ALLOWED_ORIGINS",
-            "http://127.0.0.1:3000,http://localhost:3000",
+            "http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:3001,http://localhost:3001",
         ).split(",")
     )
     database_url: str = Field(default=DATABASE_URL)
@@ -23,6 +27,14 @@ class Settings(BaseModel):
     s3_bucket: str | None = Field(default=os.getenv("CONTROL_PLANE_S3_BUCKET", None))
     s3_endpoint: str | None = Field(default=os.getenv("CONTROL_PLANE_S3_ENDPOINT", None))
     openai_api_key: str | None = Field(default=os.getenv("OPENAI_API_KEY", None))
+
+    # Stripe billing
+    stripe_secret_key: str | None = Field(default=os.getenv("STRIPE_SECRET_KEY", None))
+    stripe_webhook_secret: str | None = Field(default=os.getenv("STRIPE_WEBHOOK_SECRET", None))
+    stripe_price_starter: str | None = Field(default=os.getenv("STRIPE_PRICE_STARTER", None))
+    stripe_price_pro: str | None = Field(default=os.getenv("STRIPE_PRICE_PRO", None))
+    stripe_price_expert: str | None = Field(default=os.getenv("STRIPE_PRICE_EXPERT", None))
+    frontend_url: str = Field(default=os.getenv("FRONTEND_URL", "http://localhost:3000"))
 
 
 settings = Settings()

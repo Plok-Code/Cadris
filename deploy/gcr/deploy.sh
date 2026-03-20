@@ -43,6 +43,19 @@ GCS_BUCKET="${GCS_BUCKET:-${PROJECT}-cadris-uploads}"
 RUNTIME_PROVIDER="${CADRIS_RUNTIME_PROVIDER:-local}"
 OPENAI_MODEL="${CADRIS_OPENAI_MODEL:-gpt-4o-mini}"
 
+# Auth
+AUTH_SECRET="${NEXTAUTH_SECRET:?❌ Set NEXTAUTH_SECRET in .env.gcr (openssl rand -base64 32)}"
+GOOGLE_CID="${GOOGLE_CLIENT_ID:?❌ Set GOOGLE_CLIENT_ID in .env.gcr}"
+GOOGLE_CSECRET="${GOOGLE_CLIENT_SECRET:?❌ Set GOOGLE_CLIENT_SECRET in .env.gcr}"
+GITHUB_CID="${GITHUB_CLIENT_ID:?❌ Set GITHUB_CLIENT_ID in .env.gcr}"
+GITHUB_CSECRET="${GITHUB_CLIENT_SECRET:?❌ Set GITHUB_CLIENT_SECRET in .env.gcr}"
+
+# Stripe
+STRIPE_SK="${STRIPE_SECRET_KEY:?❌ Set STRIPE_SECRET_KEY in .env.gcr}"
+STRIPE_WH="${STRIPE_WEBHOOK_SECRET:-}"
+STRIPE_PRO="${STRIPE_PRICE_PRO:?❌ Set STRIPE_PRICE_PRO in .env.gcr}"
+STRIPE_TEAM="${STRIPE_PRICE_TEAM:?❌ Set STRIPE_PRICE_TEAM in .env.gcr}"
+
 # Artifact Registry (replaces deprecated gcr.io)
 AR_REPO="${REGION}-docker.pkg.dev/${PROJECT}/cadris"
 
@@ -185,7 +198,12 @@ CONTROL_PLANE_RUNTIME_URL=${RUNTIME_URL},\
 CONTROL_PLANE_RENDERER_URL=${RENDERER_URL},\
 CONTROL_PLANE_ALLOWED_ORIGINS=https://PLACEHOLDER,\
 CONTROL_PLANE_S3_BUCKET=${GCS_BUCKET},\
-OPENAI_API_KEY=${OPENAI_KEY}" \
+OPENAI_API_KEY=${OPENAI_KEY},\
+STRIPE_SECRET_KEY=${STRIPE_SK},\
+STRIPE_WEBHOOK_SECRET=${STRIPE_WH},\
+STRIPE_PRICE_PRO=${STRIPE_PRO},\
+STRIPE_PRICE_TEAM=${STRIPE_TEAM},\
+FRONTEND_URL=https://PLACEHOLDER" \
   --quiet
 
 CP_URL="$(gcloud run services describe cadris-control-plane \
@@ -206,7 +224,13 @@ gcloud run deploy cadris-web \
   --min-instances 0 \
   --max-instances 2 \
   --allow-unauthenticated \
-  --set-env-vars "NEXT_PUBLIC_CADRIS_API_URL=${CP_URL}" \
+  --set-env-vars "\
+CONTROL_PLANE_URL=${CP_URL},\
+NEXTAUTH_SECRET=${AUTH_SECRET},\
+GOOGLE_CLIENT_ID=${GOOGLE_CID},\
+GOOGLE_CLIENT_SECRET=${GOOGLE_CSECRET},\
+GITHUB_CLIENT_ID=${GITHUB_CID},\
+GITHUB_CLIENT_SECRET=${GITHUB_CSECRET}" \
   --quiet
 
 WEB_URL="$(gcloud run services describe cadris-web \
@@ -214,15 +238,27 @@ WEB_URL="$(gcloud run services describe cadris-web \
   --format='value(status.url)')"
 echo "  ✅ Web: ${WEB_URL}"
 
-# ── 8. Update CORS with real web URL ──────────────────────────────
+# ── 8. Update URLs now that we know the real web URL ─────────────
 echo ""
-echo "Updating CORS origin..."
+echo "Updating production URLs..."
+
+# Control-plane: CORS + Stripe redirect URL
 gcloud run services update cadris-control-plane \
   --region "${REGION}" \
   --project="${PROJECT}" \
-  --update-env-vars "CONTROL_PLANE_ALLOWED_ORIGINS=${WEB_URL}" \
+  --update-env-vars "\
+CONTROL_PLANE_ALLOWED_ORIGINS=${WEB_URL},\
+FRONTEND_URL=${WEB_URL}" \
   --quiet
-echo "  ✅ CORS updated to ${WEB_URL}"
+echo "  ✅ Control-plane: CORS + FRONTEND_URL -> ${WEB_URL}"
+
+# Web: set NEXTAUTH_URL for OAuth callbacks
+gcloud run services update cadris-web \
+  --region "${REGION}" \
+  --project="${PROJECT}" \
+  --update-env-vars "NEXTAUTH_URL=${WEB_URL}" \
+  --quiet
+echo "  ✅ Web: NEXTAUTH_URL -> ${WEB_URL}"
 
 # ── 9. Grant service-to-service auth ──────────────────────────────
 echo ""
@@ -265,4 +301,12 @@ echo "Useful commands:"
 echo "  Logs:    gcloud run logs read cadris-control-plane --region=${REGION} --project=${PROJECT}"
 echo "  Domain:  gcloud run domain-mappings create --service cadris-web --domain your-domain.com"
 echo "  Redeploy: bash deploy/gcr/deploy.sh"
+echo ""
+echo "⚠️  Post-deploy checklist:"
+echo "  1. Google OAuth: add ${WEB_URL}/api/auth/callback/google as redirect URI"
+echo "     -> https://console.cloud.google.com/apis/credentials"
+echo "  2. GitHub OAuth: set callback URL to ${WEB_URL}/api/auth/callback/github"
+echo "     -> https://github.com/settings/developers"
+echo "  3. Stripe webhook: add ${CP_URL}/api/billing/webhook"
+echo "     -> https://dashboard.stripe.com/webhooks"
 echo ""

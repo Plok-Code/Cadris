@@ -56,8 +56,67 @@ h2 {
     margin-top: 18pt;
     margin-bottom: 8pt;
 }
+h3 {
+    font-size: 12pt;
+    color: #16213e;
+    margin-top: 14pt;
+    margin-bottom: 6pt;
+}
 p {
     margin-bottom: 10pt;
+}
+ul, ol {
+    margin-bottom: 10pt;
+    padding-left: 20pt;
+}
+li {
+    margin-bottom: 4pt;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 12pt;
+    font-size: 10pt;
+}
+th, td {
+    border: 1px solid #ccc;
+    padding: 6pt 8pt;
+    text-align: left;
+    vertical-align: top;
+}
+th {
+    background: #f0f4f8;
+    font-weight: 600;
+    color: #0f3460;
+}
+tr:nth-child(even) td {
+    background: #fafbfc;
+}
+code {
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 9pt;
+    background: #f0f4f8;
+    padding: 1pt 4pt;
+    border-radius: 2pt;
+}
+pre {
+    background: #f0f4f8;
+    padding: 8pt 12pt;
+    border-radius: 4pt;
+    font-size: 9pt;
+    overflow-x: auto;
+    margin-bottom: 10pt;
+}
+pre code {
+    background: none;
+    padding: 0;
+}
+blockquote {
+    border-left: 3pt solid #0f3460;
+    margin: 10pt 0;
+    padding: 4pt 12pt;
+    color: #555;
+    background: #f8f9fa;
 }
 .certainty-tag {
     display: inline-block;
@@ -122,7 +181,10 @@ def build_html(payload: RendererRequest) -> str:
         cert_label = CERTAINTY_LABELS.get(section.certainty, section.certainty)
         tag = f'<span class="certainty-tag {certainty_class}">{cert_label}</span>'
         parts.append(f"<h2>{section.title} {tag}</h2>")
-        html_content = md_lib.markdown(section.content)
+        html_content = md_lib.markdown(
+            section.content,
+            extensions=["tables", "fenced_code", "nl2br", "sane_lists"],
+        )
         parts.append(html_content)
     parts.append('<div class="footer">Genere par Cadris</div>')
     body = "\n".join(parts)

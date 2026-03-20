@@ -133,6 +133,18 @@ export interface ProjectSummary {
   updatedAt: string;
 }
 
+export interface MissionListItem {
+  id: string;
+  title: string;
+  status: MissionStatus;
+  dossierReady: boolean;
+  sectionCount: number;
+  createdAt: string;
+  updatedAt: string;
+  projectId: string;
+  intakeText: string;
+}
+
 export interface DossierSection {
   id: string;
   title: string;
@@ -161,6 +173,7 @@ export interface CreateMissionRequest {
 
 export interface AnswerQuestionRequest {
   answerText: string;
+  action?: "refine_wave" | "next_wave" | "answer_qualification";
 }
 
 export interface CreateMissionResponse {
@@ -257,3 +270,97 @@ export const flowDescriptions: Record<FlowCode, string> = {
   projet_flou: "Remettre un projet existant en coherence sans repartir de zero.",
   pivot: "Rouvrir ce qui est vraiment impacte par un changement majeur, puis republier un dossier credible."
 };
+
+// ── SSE event types for collaborative engine ─────────────
+
+export type RuntimeEventType =
+  | "mission_created"
+  | "mission_started"
+  | "qualification_questions"
+  | "agent_started"
+  | "agent_thinking"
+  | "agent_completed"
+  | "document_updated"
+  | "inter_agent_query"
+  | "question_for_user"
+  | "mission_completed"
+  | "error"
+  | "wave_started"
+  | "wave_review"
+  | "wave_completed";
+
+export interface RuntimeEvent {
+  event: RuntimeEventType;
+  data: Record<string, unknown>;
+}
+
+export interface QualificationQuestionsEvent {
+  questions: Array<{ question: string; context: string }>;
+}
+
+export interface AgentStartedEvent {
+  agent: string;
+  label: string;
+  role: string;
+  wave: number;
+  model: string;
+  iteration: number;
+}
+
+export interface DocumentUpdatedEvent {
+  doc_id: string;
+  title: string;
+  agent: string;
+  certainty: CertaintyStatus;
+  version: number;
+  preview: string;
+}
+
+export interface AgentCompletedEvent {
+  agent: string;
+  docs_produced: number;
+  iteration: number;
+}
+
+export interface QuestionForUserEvent {
+  question: string;
+  context: string;
+  from_agent: string;
+  blocking_docs: string[];
+}
+
+export interface MissionCompletedEvent {
+  mission_id: string;
+  total_documents: number;
+  iterations: number;
+}
+
+// ── Wave-level events (Phase 2) ──────────────────────────
+
+export interface WaveStartedEvent {
+  wave: number;
+  agents: string[];
+  total_waves: number;
+}
+
+export interface CriticReviewItem {
+  doc_id: string;
+  quality: string;
+  comment: string;
+}
+
+export interface WaveReviewEvent {
+  wave: number;
+  overall_quality: string;
+  reviews: CriticReviewItem[];
+  questions_for_user: string[];
+  synthesis: string;
+}
+
+export interface WaveCompletedEvent {
+  wave: number;
+  total_waves: number;
+  overall_quality: string;
+  questions_for_user: string[];
+  documents_so_far: number;
+}

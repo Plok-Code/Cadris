@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Public_Sans } from "next/font/google";
 import "./globals.css";
+import SessionWrapper from "./components/SessionWrapper";
+import UserMenu from "./components/UserMenu";
 
 const publicSans = Public_Sans({
   subsets: ["latin"],
@@ -26,9 +28,14 @@ export default function RootLayout({
   return (
     <html lang="fr">
       <body className={`${publicSans.variable} ${ibmPlexMono.variable}`}>
-        {children}
+        <SessionWrapper>
+          <header className="app-header">
+            <a href="/" className="app-header__logo">Cadris</a>
+            <UserMenu />
+          </header>
+          {children}
+        </SessionWrapper>
       </body>
     </html>
   );
 }
-

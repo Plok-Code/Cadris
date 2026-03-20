@@ -34,5 +34,5 @@ def require_user(
         raise AppError.unauthorized("Invalid x-cadris-user-email header.")
 
     repository = ControlPlaneRepository(session)
-    repository.ensure_user(user_id=x_cadris_user_id, email=email)
-    return AuthenticatedUser(id=x_cadris_user_id, email=email)
+    user = repository.ensure_user(user_id=x_cadris_user_id, email=email)
+    return AuthenticatedUser(id=user.id, email=user.email)

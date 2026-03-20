@@ -59,14 +59,70 @@ class ControlPlaneRepository:
             self.session.commit()
         return len(stale)
 
+    def get_user(self, user_id: str) -> UserRecord | None:
+        return self.session.get(UserRecord, user_id)
+
     def ensure_user(self, user_id: str, email: str) -> UserRecord:
         user = self.session.get(UserRecord, user_id)
         if user is None:
+            # Check if email already exists (e.g., user switched auth provider)
+            existing = self.session.execute(
+                select(UserRecord).where(UserRecord.email == email)
+            ).scalar_one_or_none()
+            if existing is not None:
+                return existing
             user = UserRecord(id=user_id, email=email)
             self.session.add(user)
             self.session.commit()
             self.session.refresh(user)
         return user
+
+    def list_missions_for_user(self, user_id: str) -> list[dict]:
+        """List all missions for a user with basic info (for the Mes projets page)."""
+        statement = (
+            select(MissionRecord)
+            .join(ProjectRecord, MissionRecord.project_id == ProjectRecord.id)
+            .where(ProjectRecord.user_id == user_id)
+            .order_by(MissionRecord.created_at.desc())
+        )
+        results = []
+        for m in self.session.scalars(statement).all():
+            # Count sections in dossier if it exists
+            section_count = 0
+            dossier = self.session.get(DossierRecord, m.id)
+            if dossier and dossier.sections_json:
+                try:
+                    section_count = len(json.loads(dossier.sections_json))
+                except Exception:
+                    pass
+            results.append({
+                "id": m.id,
+                "title": m.title,
+                "status": m.status,
+                "dossierReady": bool(m.dossier_ready),
+                "sectionCount": section_count,
+                "createdAt": m.created_at,
+                "updatedAt": m.updated_at,
+                "projectId": m.project_id,
+                "intakeText": (m.intake_text or "")[:200],
+            })
+        return results
+
+    def delete_mission(self, mission_id: str) -> None:
+        """Delete a mission and its associated dossier/exports."""
+        # Delete dossier
+        dossier = self.session.get(DossierRecord, mission_id)
+        if dossier:
+            self.session.delete(dossier)
+        # Delete exports
+        self.session.execute(
+            delete(ExportRecord).where(ExportRecord.mission_id == mission_id)
+        )
+        # Delete mission (cascades to agents, artifacts, etc.)
+        mission = self.session.get(MissionRecord, mission_id)
+        if mission:
+            self.session.delete(mission)
+        self.session.commit()
 
     def list_projects_for_user(self, user_id: str) -> list[ProjectSummary]:
         statement = (
@@ -364,6 +420,13 @@ class ControlPlaneRepository:
 
         self.session.commit()
         self.session.refresh(record)
+        return self._to_dossier_read_model(record)
+
+    def get_dossier(self, mission_id: str) -> DossierReadModel | None:
+        """Get dossier by mission_id (no user ownership check — for internal merging)."""
+        record = self.session.get(DossierRecord, mission_id)
+        if record is None:
+            return None
         return self._to_dossier_read_model(record)
 
     def get_dossier_for_user(self, user_id: str, mission_id: str) -> DossierReadModel | None:

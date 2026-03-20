@@ -17,5 +17,10 @@
     "open:local:windows": "scripts\\open-local-dev.cmd",
     "open:local:fast": "scripts\\start-local.cmd",
     "check:local": "scripts\\check-local.cmd"
+  },
+  "dependencies": {
+    "@auth/unstorage-adapter": "^2.11.1",
+    "resend": "^6.9.4",
+    "unstorage": "^1.17.4"
   }
 }

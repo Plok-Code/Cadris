@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+import logging
+from typing import AsyncIterator
+
 import httpx
 from .cloud_auth import auth_headers, get_id_token
 from .errors import AppError
@@ -11,6 +15,8 @@ from .models import (
     RuntimeStartResponse,
 )
 from .request_context import get_request_id
+
+logger = logging.getLogger(__name__)
 
 
 class RuntimeClient:
@@ -63,3 +69,79 @@ class RuntimeClient:
             except httpx.RequestError as exc:
                 raise AppError.integration("runtime_unreachable", "Le runtime est indisponible.") from exc
         return RuntimeResumeResponse.model_validate(response.json())
+
+    async def start_mission_stream(self, payload: RuntimeStartRequest) -> AsyncIterator[dict]:
+        """Call runtime's streaming endpoint and yield parsed SSE events."""
+        headers = await self._headers()
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            try:
+                async with client.stream(
+                    "POST",
+                    f"{settings.runtime_url}/internal/runtime/start-stream",
+                    json=payload.model_dump(),
+                    headers=headers,
+                ) as response:
+                    response.raise_for_status()
+                    event_type = None
+                    async for line in response.aiter_lines():
+                        line = line.strip()
+                        if not line:
+                            continue
+                        if line.startswith("event: "):
+                            event_type = line[7:]
+                        elif line.startswith("data: "):
+                            try:
+                                data = json.loads(line[6:])
+                                yield {"event": event_type or "message", "data": data}
+                            except json.JSONDecodeError:
+                                logger.warning("invalid JSON in SSE data: %s", line[6:])
+                            event_type = None
+            except httpx.TimeoutException as exc:
+                raise AppError.integration("runtime_timeout", "Le runtime ne repond pas a temps.") from exc
+            except httpx.HTTPStatusError as exc:
+                raise AppError.integration(
+                    "runtime_unavailable",
+                    "Le runtime a renvoye une erreur.",
+                    http_status=502,
+                    details={"status_code": exc.response.status_code},
+                ) from exc
+            except httpx.RequestError as exc:
+                raise AppError.integration("runtime_unreachable", "Le runtime est indisponible.") from exc
+
+    async def resume_mission_stream(self, payload: RuntimeResumeRequest) -> AsyncIterator[dict]:
+        """Call runtime's streaming resume endpoint and yield parsed SSE events."""
+        headers = await self._headers()
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            try:
+                async with client.stream(
+                    "POST",
+                    f"{settings.runtime_url}/internal/runtime/resume-stream",
+                    json=payload.model_dump(),
+                    headers=headers,
+                ) as response:
+                    response.raise_for_status()
+                    event_type = None
+                    async for line in response.aiter_lines():
+                        line = line.strip()
+                        if not line:
+                            continue
+                        if line.startswith("event: "):
+                            event_type = line[7:]
+                        elif line.startswith("data: "):
+                            try:
+                                data = json.loads(line[6:])
+                                yield {"event": event_type or "message", "data": data}
+                            except json.JSONDecodeError:
+                                logger.warning("invalid JSON in SSE data: %s", line[6:])
+                            event_type = None
+            except httpx.TimeoutException as exc:
+                raise AppError.integration("runtime_timeout", "Le runtime ne repond pas a temps.") from exc
+            except httpx.HTTPStatusError as exc:
+                raise AppError.integration(
+                    "runtime_unavailable",
+                    "Le runtime a renvoye une erreur.",
+                    http_status=502,
+                    details={"status_code": exc.response.status_code},
+                ) from exc
+            except httpx.RequestError as exc:
+                raise AppError.integration("runtime_unreachable", "Le runtime est indisponible.") from exc
