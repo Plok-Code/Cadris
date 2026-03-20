@@ -28,6 +28,7 @@ from .records import (
     MissionMessageRecord,
     MissionQuestionRecord,
     MissionRecord,
+    PasswordResetTokenRecord,
     ProjectRecord,
     UserRecord,
 )
@@ -707,6 +708,60 @@ class ControlPlaneRepository:
             revoked=record.revoked,
             created_at=record.created_at,
         )
+
+    # ── Auth (email + password) ──────────────────────────────────────
+
+    def get_user_by_email(self, email: str) -> UserRecord | None:
+        statement = select(UserRecord).where(UserRecord.email == email)
+        return self.session.scalar(statement)
+
+    def register_user(
+        self, *, user_id: str, email: str, name: str, password_hash: str
+    ) -> UserRecord:
+        user = UserRecord(
+            id=user_id,
+            email=email,
+            name=name or None,
+            password_hash=password_hash,
+            plan="free",
+            created_at=utc_now(),
+        )
+        self.session.add(user)
+        self.session.commit()
+        self.session.refresh(user)
+        return user
+
+    def update_password_hash(self, *, user_id: str, password_hash: str) -> None:
+        user = self.session.get(UserRecord, user_id)
+        if user:
+            user.password_hash = password_hash
+            self.session.commit()
+
+    def create_password_reset_token(
+        self, *, token_id: str, user_id: str, token_hash: str, expires_at: str
+    ) -> None:
+        record = PasswordResetTokenRecord(
+            id=token_id,
+            user_id=user_id,
+            token_hash=token_hash,
+            expires_at=expires_at,
+            created_at=utc_now(),
+        )
+        self.session.add(record)
+        self.session.commit()
+
+    def get_valid_reset_token(self, token_hash: str) -> PasswordResetTokenRecord | None:
+        statement = select(PasswordResetTokenRecord).where(
+            PasswordResetTokenRecord.token_hash == token_hash,
+            PasswordResetTokenRecord.used == 0,
+        )
+        return self.session.scalar(statement)
+
+    def mark_reset_token_used(self, token_id: str) -> None:
+        record = self.session.get(PasswordResetTokenRecord, token_id)
+        if record:
+            record.used = 1
+            self.session.commit()
 
     @staticmethod
     def _to_dossier_read_model(record: DossierRecord) -> DossierReadModel:

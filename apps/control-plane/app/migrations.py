@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
+
+logger = logging.getLogger(__name__)
 
 
 def run_sql_migrations(engine: Engine, sql_dir: Path) -> None:
@@ -34,7 +37,15 @@ def run_sql_migrations(engine: Engine, sql_dir: Path) -> None:
                 for statement in sql.split(";"):
                     statement = statement.strip()
                     if statement:
-                        connection.exec_driver_sql(statement)
+                        try:
+                            connection.exec_driver_sql(statement)
+                        except Exception as exc:
+                            # SQLite doesn't support IF NOT EXISTS for ALTER TABLE.
+                            # Skip "duplicate column" errors from idempotent migrations.
+                            if "duplicate column" in str(exc).lower():
+                                logger.info("Skipping (column already exists): %s", statement[:80])
+                            else:
+                                raise
             connection.execute(
                 text("INSERT INTO schema_migrations (filename) VALUES (:filename)"),
                 {"filename": path.name},

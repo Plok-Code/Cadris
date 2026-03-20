@@ -13,6 +13,10 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 class Settings(BaseModel):
     runtime_url: str = Field(default=os.getenv("CONTROL_PLANE_RUNTIME_URL", "http://127.0.0.1:8001"))
     renderer_url: str = Field(default=os.getenv("CONTROL_PLANE_RENDERER_URL", "http://127.0.0.1:8002"))
+    trusted_proxy_secret: str | None = Field(default=os.getenv("CONTROL_PLANE_TRUSTED_PROXY_SECRET", None))
+    trusted_proxy_max_skew_seconds: int = Field(
+        default=int(os.getenv("CONTROL_PLANE_TRUSTED_PROXY_MAX_SKEW_SECONDS", "300"))
+    )
     allowed_origins: list[str] = Field(
         default_factory=lambda: os.getenv(
             "CONTROL_PLANE_ALLOWED_ORIGINS",
@@ -35,6 +39,9 @@ class Settings(BaseModel):
     stripe_price_pro: str | None = Field(default=os.getenv("STRIPE_PRICE_PRO", None))
     stripe_price_expert: str | None = Field(default=os.getenv("STRIPE_PRICE_EXPERT", None))
     frontend_url: str = Field(default=os.getenv("FRONTEND_URL", "http://localhost:3000"))
+
+    # Resend (for password reset emails)
+    resend_api_key: str | None = Field(default=os.getenv("RESEND_API_KEY", None))
 
 
 settings = Settings()

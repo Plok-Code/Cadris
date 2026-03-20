@@ -24,9 +24,21 @@ class UserRecord(Base):
     plan_expires_at: Mapped[str | None] = mapped_column(Text(), nullable=True)
     missions_this_month: Mapped[int] = mapped_column(Integer, default=0)
     month_reset_at: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    password_hash: Mapped[str | None] = mapped_column(Text(), nullable=True)
     created_at: Mapped[str] = mapped_column(default=utc_now)
 
     projects: Mapped[list["ProjectRecord"]] = relationship(back_populates="user")
+
+
+class PasswordResetTokenRecord(Base):
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(Text())
+    expires_at: Mapped[str] = mapped_column(Text())
+    used: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[str] = mapped_column(default=utc_now)
 
 
 class ProjectRecord(Base):

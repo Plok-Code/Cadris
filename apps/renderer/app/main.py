@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import io
 import logging
+from html import escape
+
+import bleach
 import markdown as md_lib
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -156,6 +159,20 @@ CERTAINTY_LABELS = {
     "blocking": "Bloquant",
 }
 
+MARKDOWN_EXTENSIONS = ["tables", "fenced_code", "nl2br", "sane_lists"]
+SANITIZED_TAGS = sorted(
+    set(bleach.sanitizer.ALLOWED_TAGS).union(
+        {"p", "br", "hr", "pre", "h1", "h2", "h3", "table", "thead", "tbody", "tr", "th", "td"}
+    )
+)
+SANITIZED_ATTRIBUTES = {
+    **bleach.sanitizer.ALLOWED_ATTRIBUTES,
+    "a": ["href", "title", "rel", "target"],
+    "th": ["colspan", "rowspan"],
+    "td": ["colspan", "rowspan"],
+}
+SANITIZED_PROTOCOLS = ["http", "https", "mailto"]
+
 
 def build_markdown(payload: RendererRequest) -> str:
     blocks: list[str] = [f"# {payload.title}"]
@@ -171,21 +188,32 @@ def build_markdown(payload: RendererRequest) -> str:
     return "\n\n".join(blocks)
 
 
+def render_safe_markdown(content: str) -> str:
+    html_content = md_lib.markdown(content, extensions=MARKDOWN_EXTENSIONS)
+    return bleach.clean(
+        html_content,
+        tags=SANITIZED_TAGS,
+        attributes=SANITIZED_ATTRIBUTES,
+        protocols=SANITIZED_PROTOCOLS,
+        strip=True,
+    )
+
+
 def build_html(payload: RendererRequest) -> str:
-    parts: list[str] = [f"<h1>{payload.title}</h1>"]
+    safe_title = escape(payload.title)
+    safe_summary = escape(payload.summary)
+    parts: list[str] = [f"<h1>{safe_title}</h1>"]
     if payload.quality_label:
-        parts.append(f'<p class="quality-label"><strong>Statut qualite</strong> : {payload.quality_label}</p>')
-    parts.append(f"<p>{payload.summary}</p>")
+        parts.append(
+            f'<p class="quality-label"><strong>Statut qualite</strong> : {escape(payload.quality_label)}</p>'
+        )
+    parts.append(f"<p>{safe_summary}</p>")
     for section in payload.sections:
         certainty_class = f"certainty-{section.certainty}"
         cert_label = CERTAINTY_LABELS.get(section.certainty, section.certainty)
-        tag = f'<span class="certainty-tag {certainty_class}">{cert_label}</span>'
-        parts.append(f"<h2>{section.title} {tag}</h2>")
-        html_content = md_lib.markdown(
-            section.content,
-            extensions=["tables", "fenced_code", "nl2br", "sane_lists"],
-        )
-        parts.append(html_content)
+        tag = f'<span class="certainty-tag {certainty_class}">{escape(cert_label)}</span>'
+        parts.append(f"<h2>{escape(section.title)} {tag}</h2>")
+        parts.append(render_safe_markdown(section.content))
     parts.append('<div class="footer">Genere par Cadris</div>')
     body = "\n".join(parts)
     return f"""<!DOCTYPE html>

@@ -2,16 +2,44 @@
 
 import { useState } from "react";
 import { signIn } from "next-auth/react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense } from "react";
 
 function LoginContent() {
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [magicEmail, setMagicEmail] = useState("");
   const [loading, setLoading] = useState<string | null>(null);
   const [magicSent, setMagicSent] = useState(false);
+  const [error, setError] = useState("");
   const searchParams = useSearchParams();
+  const router = useRouter();
   const isVerify = searchParams.get("verify") === "1";
+  const justRegistered = searchParams.get("registered") === "1";
+  const justReset = searchParams.get("reset") === "1";
+
+  const handleCredentialsLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !password) return;
+    setLoading("credentials");
+    setError("");
+    try {
+      const result = await signIn("credentials", {
+        email: email.trim(),
+        password,
+        redirect: false,
+      });
+      if (result?.error) {
+        setError("Email ou mot de passe incorrect.");
+      } else {
+        router.push("/billing");
+      }
+    } catch {
+      setError("Erreur de connexion. Reessayez.");
+    } finally {
+      setLoading(null);
+    }
+  };
 
   const handleOAuth = async (provider: string) => {
     setLoading(provider);
@@ -46,7 +74,7 @@ function LoginContent() {
           <div className="login__header">
             <h1 className="login__title">Cadris</h1>
             <div className="login__verify">
-              <div className="login__verify-icon">✉️</div>
+              <div className="login__verify-icon">&#9993;&#65039;</div>
               <h2 className="login__verify-title">Verifiez votre email</h2>
               <p className="login__verify-text">
                 Un lien de connexion a ete envoye a <strong>{magicEmail || "votre adresse"}</strong>.
@@ -72,12 +100,57 @@ function LoginContent() {
           </p>
         </div>
 
-        {/* Magic Link — primary auth method */}
+        {justRegistered && (
+          <p className="login__success">Compte cree avec succes. Connectez-vous.</p>
+        )}
+        {justReset && (
+          <p className="login__success">Mot de passe reinitialise. Connectez-vous.</p>
+        )}
+
+        {/* Email + Password — primary auth method */}
+        <form className="login__credentials-form" onSubmit={handleCredentialsLogin}>
+          <input
+            type="email"
+            className="login__credentials-input"
+            placeholder="votre@email.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={loading !== null}
+            required
+          />
+          <input
+            type="password"
+            className="login__credentials-input"
+            placeholder="Mot de passe"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            disabled={loading !== null}
+            required
+          />
+          {error && <p className="login__error">{error}</p>}
+          <button
+            type="submit"
+            className="login__btn login__btn--credentials"
+            disabled={loading !== null || !email.trim() || !password}
+          >
+            {loading === "credentials" ? "Connexion..." : "Se connecter"}
+          </button>
+          <div className="login__links">
+            <a href="/forgot-password" className="login__link">Mot de passe oublie ?</a>
+            <a href="/register" className="login__link">Creer un compte</a>
+          </div>
+        </form>
+
+        <div className="login__divider">
+          <span>ou</span>
+        </div>
+
+        {/* Magic Link */}
         <form className="login__magic-form" onSubmit={handleMagicLink}>
           <input
             type="email"
             className="login__magic-input"
-            placeholder="votre@email.com"
+            placeholder="Recevoir un lien par email"
             value={magicEmail}
             onChange={(e) => setMagicEmail(e.target.value)}
             disabled={loading !== null}

@@ -7,8 +7,9 @@ import { UnstorageAdapter } from "@auth/unstorage-adapter";
 import { createStorage } from "unstorage";
 import memoryDriver from "unstorage/drivers/memory";
 
-// In-memory storage for verification tokens (magic links)
-// In production, replace with Redis or another persistent driver
+// Use memory driver for auth token storage.
+// fs-lite driver cannot be imported here because this file is bundled
+// by the Edge middleware runtime which doesn't support node:fs.
 const storage = createStorage({ driver: memoryDriver() });
 
 /**
@@ -38,6 +39,30 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     Resend({
       apiKey: process.env.RESEND_API_KEY,
       from: "Cadris <onboarding@resend.dev>",
+    }),
+    // Email + Password login
+    Credentials({
+      id: "credentials",
+      name: "Email & Password",
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" },
+      },
+      async authorize(credentials) {
+        const email = credentials?.email as string;
+        const password = credentials?.password as string;
+        if (!email || !password) return null;
+
+        const cpUrl = process.env.CONTROL_PLANE_URL ?? "http://127.0.0.1:8000";
+        const res = await fetch(`${cpUrl}/api/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        if (!res.ok) return null;
+        const user = await res.json();
+        return { id: user.id, email: user.email, name: user.name };
+      },
     }),
     // Dev-only: simple email login without verification
     ...(process.env.NODE_ENV === "development"
@@ -73,7 +98,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       const { pathname } = request.nextUrl;
 
       // Public routes that don't require auth
-      const publicPaths = ["/", "/login", "/shared", "/billing"];
+      const publicPaths = ["/", "/login", "/register", "/forgot-password", "/reset-password", "/shared", "/billing"];
       const isPublic =
         publicPaths.some((p) => pathname === p || pathname.startsWith(p + "/")) ||
         pathname.startsWith("/api/auth") ||

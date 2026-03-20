@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from contextlib import asynccontextmanager
+from html import escape
 from pathlib import Path
 from uuid import uuid4
+
+import bleach
+import markdown as md_lib
+import io
 from fastapi import Depends, FastAPI, File, Request, Response, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -75,6 +81,32 @@ if settings.openai_api_key:
     file_search_client = FileSearchClient(settings.openai_api_key)
 
 
+_MARKDOWN_EXTENSIONS = ["tables", "fenced_code", "nl2br", "sane_lists"]
+_SANITIZED_TAGS = sorted(
+    set(bleach.sanitizer.ALLOWED_TAGS).union(
+        {"p", "br", "hr", "pre", "h1", "h2", "h3", "table", "thead", "tbody", "tr", "th", "td"}
+    )
+)
+_SANITIZED_ATTRIBUTES = {
+    **bleach.sanitizer.ALLOWED_ATTRIBUTES,
+    "a": ["href", "title", "rel", "target"],
+    "th": ["colspan", "rowspan"],
+    "td": ["colspan", "rowspan"],
+}
+_SANITIZED_PROTOCOLS = ["http", "https", "mailto"]
+
+
+def _render_safe_markdown_html(content: str) -> str:
+    html_content = md_lib.markdown(content, extensions=_MARKDOWN_EXTENSIONS)
+    return bleach.clean(
+        html_content,
+        tags=_SANITIZED_TAGS,
+        attributes=_SANITIZED_ATTRIBUTES,
+        protocols=_SANITIZED_PROTOCOLS,
+        strip=True,
+    )
+
+
 def to_runtime_inputs(items):
     return [
         RuntimeInputItem(
@@ -144,6 +176,177 @@ app.add_exception_handler(Exception, unhandled_exception_handler)
 @app.get("/health")
 async def healthcheck():
     return {"ok": True}
+
+
+# ── Email + Password Auth (unauthenticated) ─────────────────────
+
+import hashlib
+import re
+import secrets
+from collections import defaultdict
+
+import bcrypt
+import httpx
+
+# Rate limiter (in-memory)
+_rate_limits: dict[str, list[float]] = defaultdict(list)
+_RATE_WINDOW = 60  # seconds
+_RATE_MAX = 5
+
+
+def _check_rate_limit(key: str) -> bool:
+    now = time.time()
+    bucket = _rate_limits[key]
+    _rate_limits[key] = [t for t in bucket if now - t < _RATE_WINDOW]
+    if len(_rate_limits[key]) >= _RATE_MAX:
+        return False
+    _rate_limits[key].append(now)
+    return True
+
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    name: str = ""
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    password: str
+
+
+_EMAIL_RE = re.compile(r"^[^@\s]{1,128}@[^@\s]{1,128}\.[^@\s]{1,64}$")
+
+
+@app.post("/api/auth/register", status_code=status.HTTP_201_CREATED)
+async def auth_register(
+    payload: RegisterRequest,
+    session: Session = Depends(get_session),
+):
+    email = payload.email.strip().lower()
+    if not _EMAIL_RE.match(email):
+        raise AppError.validation("invalid_email", "Adresse email invalide.")
+    if len(payload.password) < 8:
+        raise AppError.validation("weak_password", "Le mot de passe doit contenir au moins 8 caracteres.")
+
+    repo = ControlPlaneRepository(session)
+    if repo.get_user_by_email(email):
+        raise AppError.conflict("email_taken", "Un compte existe deja avec cet email.")
+
+    user_id = re.sub(r"[^a-zA-Z0-9]", "-", email)[:64]
+    password_hash = bcrypt.hashpw(payload.password.encode(), bcrypt.gensalt()).decode()
+    user = repo.register_user(
+        user_id=user_id, email=email, name=payload.name.strip(), password_hash=password_hash
+    )
+    return {"id": user.id, "email": user.email, "name": user.name}
+
+
+@app.post("/api/auth/login")
+async def auth_login(
+    payload: LoginRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+):
+    client_ip = request.client.host if request.client else "unknown"
+    if not _check_rate_limit(f"login:{client_ip}"):
+        raise AppError.validation("rate_limited", "Trop de tentatives. Reessayez dans une minute.")
+
+    repo = ControlPlaneRepository(session)
+    user = repo.get_user_by_email(payload.email.strip().lower())
+    if not user or not user.password_hash:
+        raise AppError.unauthorized("Email ou mot de passe incorrect.")
+    if not bcrypt.checkpw(payload.password.encode(), user.password_hash.encode()):
+        raise AppError.unauthorized("Email ou mot de passe incorrect.")
+
+    return {"id": user.id, "email": user.email, "name": user.name}
+
+
+@app.post("/api/auth/forgot-password")
+async def auth_forgot_password(
+    payload: ForgotPasswordRequest,
+    session: Session = Depends(get_session),
+):
+    email = payload.email.strip().lower()
+    if not _check_rate_limit(f"forgot:{email}"):
+        raise AppError.validation("rate_limited", "Trop de tentatives. Reessayez dans une minute.")
+
+    repo = ControlPlaneRepository(session)
+    user = repo.get_user_by_email(email)
+
+    # Always return same message (anti-enumeration)
+    msg = "Si un compte existe avec cet email, un lien de reinitialisation a ete envoye."
+
+    if user and user.password_hash and settings.resend_api_key:
+        from datetime import timedelta
+        token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        expires_at = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+        repo.create_password_reset_token(
+            token_id=str(uuid4()), user_id=user.id,
+            token_hash=token_hash, expires_at=expires_at,
+        )
+        reset_url = f"{settings.frontend_url}/reset-password?token={token}"
+        try:
+            async with httpx.AsyncClient() as client:
+                await client.post(
+                    "https://api.resend.com/emails",
+                    headers={"Authorization": f"Bearer {settings.resend_api_key}"},
+                    json={
+                        "from": "Cadris <onboarding@resend.dev>",
+                        "to": [email],
+                        "subject": "Reinitialisation de votre mot de passe Cadris",
+                        "html": (
+                            f"<p>Bonjour,</p>"
+                            f"<p>Cliquez sur le lien ci-dessous pour reinitialiser votre mot de passe :</p>"
+                            f'<p><a href="{escape(reset_url)}">Reinitialiser mon mot de passe</a></p>'
+                            f"<p>Ce lien expire dans 1 heure.</p>"
+                            f"<p>Si vous n'avez pas demande cette reinitialisation, ignorez cet email.</p>"
+                        ),
+                    },
+                )
+        except Exception:
+            logger.exception("Failed to send password reset email")
+
+    return {"message": msg}
+
+
+@app.post("/api/auth/reset-password")
+async def auth_reset_password(
+    payload: ResetPasswordRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+):
+    client_ip = request.client.host if request.client else "unknown"
+    if not _check_rate_limit(f"reset:{client_ip}"):
+        raise AppError.validation("rate_limited", "Trop de tentatives. Reessayez dans une minute.")
+
+    if len(payload.password) < 8:
+        raise AppError.validation("weak_password", "Le mot de passe doit contenir au moins 8 caracteres.")
+
+    token_hash = hashlib.sha256(payload.token.encode()).hexdigest()
+    repo = ControlPlaneRepository(session)
+    record = repo.get_valid_reset_token(token_hash)
+
+    if not record:
+        raise AppError.validation("invalid_token", "Lien invalide ou expire.")
+
+    if datetime.fromisoformat(record.expires_at) < datetime.now(UTC):
+        raise AppError.validation("expired_token", "Ce lien a expire. Demandez un nouveau lien.")
+
+    password_hash = bcrypt.hashpw(payload.password.encode(), bcrypt.gensalt()).decode()
+    repo.update_password_hash(user_id=record.user_id, password_hash=password_hash)
+    repo.mark_reset_token_used(record.id)
+
+    return {"message": "Mot de passe reinitialise avec succes."}
 
 
 @app.get("/api/projects", response_model=list[ProjectSummary])
@@ -864,20 +1067,16 @@ blockquote { border-left: 3pt solid #0f3460; margin: 8pt 0; padding: 4pt 10pt; c
 
 def _md_to_pdf_bytes(title: str, content: str) -> bytes:
     """Convert a markdown document to PDF via HTML (supports tables, accents, formatting)."""
-    import markdown as md_lib
     from xhtml2pdf import pisa
 
-    # Convert markdown to HTML with GFM extensions
-    html_body = md_lib.markdown(
-        content,
-        extensions=["tables", "fenced_code", "nl2br", "sane_lists"],
-    )
+    html_body = _render_safe_markdown_html(content)
+    safe_title = escape(title)
 
     html = f"""<!DOCTYPE html>
 <html lang="fr">
 <head><meta charset="utf-8"><style>{_PDF_CSS}</style></head>
 <body>
-<h1>{title}</h1>
+<h1>{safe_title}</h1>
 {html_body}
 <div class="footer">Genere par Cadris</div>
 </body>
@@ -983,7 +1182,6 @@ async def get_dossier_markdown(
 # ---------------------------------------------------------------------------
 
 import zipfile
-import io
 
 DOC_ID_TO_ZIP_PATH = {
     "implementation_plan": "CLAUDE.md",
@@ -1147,8 +1345,6 @@ async def list_exports(
 
 def build_shared_html(payload: RendererRequest) -> str:
     """Build a self-contained HTML page for shared dossier viewing."""
-    import markdown as md_lib
-
     css = """
     body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; color: #1a1a2e; line-height: 1.6; }
     h1 { font-size: 1.5rem; color: #16213e; border-bottom: 2px solid #0f3460; padding-bottom: 0.5rem; }
@@ -1164,22 +1360,26 @@ def build_shared_html(payload: RendererRequest) -> str:
 
     cert_labels = {"solid": "Solide", "to_confirm": "A confirmer", "unknown": "Inconnu", "blocking": "Bloquant"}
 
-    parts = [f"<h1>{payload.title}</h1>"]
+    safe_title = escape(payload.title)
+    safe_summary = escape(payload.summary)
+    parts = [f"<h1>{safe_title}</h1>"]
     if payload.quality_label:
-        parts.append(f'<p class="quality-label"><strong>Statut qualite</strong> : {payload.quality_label}</p>')
-    parts.append(f"<p>{payload.summary}</p>")
+        parts.append(
+            f'<p class="quality-label"><strong>Statut qualite</strong> : {escape(payload.quality_label)}</p>'
+        )
+    parts.append(f"<p>{safe_summary}</p>")
     for section in payload.sections:
         certainty_class = f"certainty-{section.certainty}"
         cert_label = cert_labels.get(section.certainty, section.certainty)
-        tag = f'<span class="certainty-tag {certainty_class}">{cert_label}</span>'
-        parts.append(f"<h2>{section.title} {tag}</h2>")
-        parts.append(md_lib.markdown(section.content))
-    parts.append('<div class="footer">Partage via Cadris — lien revocable par le proprietaire</div>')
+        tag = f'<span class="certainty-tag {certainty_class}">{escape(cert_label)}</span>'
+        parts.append(f"<h2>{escape(section.title)} {tag}</h2>")
+        parts.append(_render_safe_markdown_html(section.content))
+    parts.append('<div class="footer">Partage via Cadris - lien revocable par le proprietaire</div>')
 
     body = "\n".join(parts)
     return f"""<!DOCTYPE html>
 <html lang="fr">
-<head><meta charset="utf-8"><title>{payload.title} — Cadris</title><style>{css}</style></head>
+<head><meta charset="utf-8"><title>{safe_title} - Cadris</title><style>{css}</style></head>
 <body>{body}</body>
 </html>"""
 

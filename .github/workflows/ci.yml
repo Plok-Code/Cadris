@@ -43,7 +43,7 @@ jobs:
           python-version: "3.13"
       - name: Install renderer deps
         working-directory: apps/renderer
-        run: pip install . pytest
+        run: pip install ".[test]"
       - name: Run renderer tests
         working-directory: apps/renderer
         run: python -m pytest tests/ -v

@@ -1,4 +1,5 @@
 import { auth } from "../../../../auth";
+import { buildControlPlaneAuthHeaders } from "../../../../src/lib/control-plane-auth";
 
 const CONTROL_PLANE_URL =
   process.env.CONTROL_PLANE_URL ?? "http://127.0.0.1:8000";
@@ -47,8 +48,15 @@ async function proxyToControlPlane(req: Request): Promise<Response> {
   });
 
   // Inject authenticated user info
-  headers.set("x-cadris-user-id", session.user.id);
-  headers.set("x-cadris-user-email", session.user.email ?? "");
+  const authHeaders = buildControlPlaneAuthHeaders({
+    userId: session.user.id,
+    userEmail: session.user.email,
+    method: req.method,
+    path: proxyPath
+  });
+  Object.entries(authHeaders).forEach(([key, value]) => {
+    headers.set(key, value);
+  });
 
   try {
     const fetchInit: RequestInit & { duplex?: string } = {

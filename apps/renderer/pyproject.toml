@@ -7,6 +7,7 @@ dependencies = [
   "pydantic>=2.12,<3",
   "uvicorn>=0.35,<0.36",
   "markdown>=3.7,<4",
+  "bleach>=6.2,<7",
   "xhtml2pdf>=0.2.16,<1"
 ]
 

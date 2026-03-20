@@ -7,7 +7,7 @@ Each AgentSpec defines:
 - execution wave (lower waves run first)
 - prompt key (maps to packages/prompts/agents/<code>_agent.md)
 
-The roster is intentionally small for v1 (8 agents, ~22 documents).
+The roster is intentionally small for v1 (8 agents, 24 documents).
 V2 will add Legal, Execution, GTM, Data agents (~55 documents total).
 """
 

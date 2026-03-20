@@ -9,6 +9,7 @@ import type {
   CreateShareLinkResponse,
   DossierReadModel,
   ExportReadModel,
+  MissionListItem,
   MissionReadModel,
   ProjectSummary,
   RuntimeEvent,

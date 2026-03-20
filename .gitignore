@@ -20,4 +20,13 @@ apps/control-plane/data/uploads/
 .tmp-logs/
 .DS_Store
 .env
+.env.local
+deploy/gcr/.env.gcr
+package-lock.json
 .claude/worktrees/
+.claude/settings.local.json
+*.egg-info/
+*.log
+*.err
+nul
+apps/runtime/data/

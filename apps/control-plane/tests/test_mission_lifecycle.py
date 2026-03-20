@@ -306,12 +306,14 @@ class TestAnswerQuestion:
 
     def test_answer_too_short(self, client, auth_headers, mock_runtime):
         mission = self._setup_mission(client, auth_headers, mock_runtime)
+        mock_runtime.resume_mission.return_value = _make_resume_response()
         resp = client.post(
             f"/api/missions/{mission['id']}/answers",
             json={"answerText": "Short"},
             headers=auth_headers,
         )
-        assert resp.status_code == 422
+        assert resp.status_code == 200
+        assert resp.json()["mission"]["status"] == "waiting_user"
 
 
 class TestGetMission:
@@ -384,6 +386,44 @@ class TestSharedDossierAccess:
         """GET /api/shared/invalid_token returns 404."""
         resp = client.get("/api/shared/invalid_token_abc123")
         assert resp.status_code == 404
+
+    def test_shared_dossier_sanitizes_embedded_html(self, client, auth_headers, mock_runtime, mock_renderer):
+        project = _create_project(client, auth_headers)
+        mock_runtime.start_mission.return_value = _make_start_response(status="waiting_user")
+        create_resp = client.post(
+            f"/api/projects/{project['id']}/missions",
+            json={"intakeText": INTAKE_TEXT},
+            headers=auth_headers,
+        )
+        mission_id = create_resp.json()["mission"]["id"]
+
+        completed = _make_resume_response(completed=True)
+        completed.dossier_sections[0].content = (
+            "<script>alert('xss')</script>\n\n**Contenu legitime**\n\n[Lien](javascript:alert(1))"
+        )
+        mock_runtime.resume_mission.return_value = completed
+
+        from app.models import RendererResponse
+        mock_renderer.render_markdown.return_value = RendererResponse(
+            markdown="# Dossier de cadrage\n\nContenu legitime"
+        )
+
+        answer_resp = client.post(
+            f"/api/missions/{mission_id}/answers",
+            json={"answerText": "Notre objectif est de digitaliser les processus RH des PME."},
+            headers=auth_headers,
+        )
+        assert answer_resp.status_code == 200
+
+        share_resp = client.post(f"/api/missions/{mission_id}/dossier/share", headers=auth_headers)
+        assert share_resp.status_code == 200
+        token = share_resp.json()["export"]["token"]
+
+        resp = client.get(f"/api/shared/{token}")
+        assert resp.status_code == 200
+        assert "<script" not in resp.text.lower()
+        assert "javascript:alert" not in resp.text.lower()
+        assert "Contenu legitime" in resp.text
 
 
 class TestRevokeExport:
@@ -464,7 +504,7 @@ class TestFullLifecycle:
         # 5. Export markdown
         resp = client.get(f"/api/missions/{mission_id}/dossier/markdown", headers=auth_headers)
         assert resp.status_code == 200
-        assert "text/markdown" in resp.headers["content-type"]
+        assert "application/zip" in resp.headers["content-type"]
 
         # 6. Create share link
         resp = client.post(f"/api/missions/{mission_id}/dossier/share", headers=auth_headers)

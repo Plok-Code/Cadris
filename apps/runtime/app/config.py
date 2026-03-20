@@ -16,6 +16,17 @@ class Settings(BaseModel):
     provider: Literal["local", "openai", "collaborative"] = Field(
         default=os.getenv("CADRIS_RUNTIME_PROVIDER", "local")
     )
+    state_store_url: str | None = Field(
+        default=os.getenv("CADRIS_RUNTIME_STATE_DB_URL") or os.getenv("CONTROL_PLANE_DATABASE_URL")
+    )
+    state_store_dir: Path = Field(
+        default=Path(
+            os.getenv(
+                "CADRIS_RUNTIME_STATE_DIR",
+                Path(__file__).resolve().parent.parent / "data" / "mission-state",
+            )
+        )
+    )
     openai_model: str = Field(default=os.getenv("CADRIS_OPENAI_MODEL", "gpt-4.1-nano"))
     openai_api_key: str | None = Field(default=os.getenv("OPENAI_API_KEY"))
     together_api_key: str | None = Field(default=os.getenv("TOGETHER_API_KEY"))

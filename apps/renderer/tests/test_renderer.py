@@ -50,6 +50,28 @@ def test_render_html():
     assert "certainty-solid" in data["html"]
 
 
+def test_render_html_sanitizes_embedded_html():
+    payload = {
+        **SAMPLE_PAYLOAD,
+        "sections": [
+            {
+                "id": "security",
+                "title": "Security",
+                "content": "<script>alert('xss')</script>**Texte sur** [Lien](javascript:alert(1))",
+                "certainty": "solid",
+            }
+        ],
+    }
+
+    response = client.post("/internal/renderer/html", json=payload)
+
+    assert response.status_code == 200
+    html = response.json()["html"].lower()
+    assert "<script" not in html
+    assert "javascript:alert" not in html
+    assert "<strong>texte sur</strong>" in html
+
+
 def test_render_pdf():
     response = client.post("/internal/renderer/pdf", json=SAMPLE_PAYLOAD)
     assert response.status_code == 200

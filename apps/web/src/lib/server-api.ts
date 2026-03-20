@@ -1,13 +1,22 @@
+import { auth } from "../../auth";
 import type { DossierReadModel, MissionReadModel, ProjectSummary } from "@cadris/schemas";
+import { buildControlPlaneAuthHeaders } from "./control-plane-auth";
 
 const baseUrl = process.env.NEXT_PUBLIC_CADRIS_API_URL ?? "http://127.0.0.1:8000";
-const userId = process.env.NEXT_PUBLIC_CADRIS_DEV_USER_ID ?? "dev-user";
 
 async function serverRequest<T>(path: string): Promise<T> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    throw new Error("Authentication required.");
+  }
+
   const response = await fetch(`${baseUrl}${path}`, {
-    headers: {
-      "x-cadris-user-id": userId
-    },
+    headers: buildControlPlaneAuthHeaders({
+      userId: session.user.id,
+      userEmail: session.user.email,
+      method: "GET",
+      path
+    }),
     cache: "no-store"
   });
 
