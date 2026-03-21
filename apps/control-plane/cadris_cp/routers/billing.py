@@ -106,6 +106,6 @@ async def billing_webhook(request: Request, session: Session = Depends(get_sessi
         return result
     except ValueError as e:
         raise AppError.validation("webhook_error", str(e))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — catch-all to return 500 instead of raw traceback
         logger.error("webhook processing error: %s", e, exc_info=True)
         raise AppError.internal("webhook_error", "Webhook processing failed.")

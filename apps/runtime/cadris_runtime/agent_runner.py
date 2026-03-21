@@ -46,7 +46,7 @@ try:
     from agents import Agent, ModelSettings, Runner, RunConfig
     from agents.models.openai_provider import OpenAIProvider
     from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
-except Exception as exc:
+except Exception as exc:  # noqa: BLE001 — import guard for optional agents SDK
     Agent = None  # type: ignore[assignment, misc]
     Runner = None  # type: ignore[assignment, misc]
     RunConfig = None  # type: ignore[assignment, misc]
@@ -395,7 +395,7 @@ async def run_agent(
                     pass  # consume the stream to completion
             output = streamed.final_output_as(spec.output_model)
             break
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — retry loop classifies errors dynamically
             err_msg = str(exc).lower()
             is_permanent = any(k in err_msg for k in (
                 "insufficient_quota", "invalid_api_key",

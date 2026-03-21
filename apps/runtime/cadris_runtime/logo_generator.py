@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+import openai
 from openai import AsyncOpenAI
 
 from .config import settings
@@ -82,7 +83,7 @@ async def generate_logos(
             ))
             logger.info("Generated logo variant '%s' for project '%s'", style_key, project_name)
 
-        except Exception as exc:
+        except openai.OpenAIError as exc:
             logger.warning("Logo generation failed for style '%s': %s", style_key, exc)
 
     return logos

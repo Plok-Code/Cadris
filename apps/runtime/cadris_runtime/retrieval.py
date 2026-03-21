@@ -44,7 +44,7 @@ class RetrievalClient:
                 query=query,
                 max_num_results=max_results,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — retrieval is best-effort; agent proceeds without context
             logger.warning("Vector store search failed for %s", vector_store_id, exc_info=True)
             return []
 

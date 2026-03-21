@@ -42,7 +42,7 @@ def _append_jsonl(filepath: Path, data: dict) -> None:
     try:
         with open(filepath, "a", encoding="utf-8") as f:
             f.write(json.dumps(data, ensure_ascii=False, default=str) + "\n")
-    except Exception as e:
+    except OSError as e:
         logger.warning("training_logger write failed: %s", e)
 
 

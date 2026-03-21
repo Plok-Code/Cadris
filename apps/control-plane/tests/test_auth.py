@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import time
 
-from app.auth import build_trusted_proxy_signature
-from app.config import settings
+from cadris_cp.auth import build_trusted_proxy_signature
+from cadris_cp.config import settings
 
 
 def _signed_headers(*, method: str, path: str, user_id: str = "test-user", user_email: str = "test@example.com") -> dict[str, str]:

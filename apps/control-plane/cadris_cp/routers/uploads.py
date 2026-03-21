@@ -68,7 +68,7 @@ async def upload_mission_input(
             )
             openai_file_id = indexed.openai_file_id
             vector_store_id = indexed.vector_store_id
-        except Exception:
+        except Exception:  # noqa: BLE001 — indexation is optional; upload must succeed regardless
             logger.warning(
                 "File Search indexation failed for %s, upload proceeds without indexation",
                 stored.input_id,

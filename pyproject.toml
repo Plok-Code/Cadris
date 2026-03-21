@@ -1,0 +1,8 @@
+[tool.pytest.ini_options]
+# Anchor rootdir to the repo root so that conftest.py (which adds both service
+# directories to sys.path) is always loaded — even when running a single
+# service's tests from the root:
+#   python -m pytest apps/runtime/tests apps/control-plane/tests -q
+filterwarnings = [
+    "ignore::pydantic._internal._generate_schema.UnsupportedFieldAttributeWarning",
+]

@@ -161,8 +161,8 @@ class S3UploadStorage:
                     Bucket=self.bucket,
                     Delete={"Objects": [{"Key": o["Key"]} for o in objects]},
                 )
-        except Exception:
-            pass  # Best-effort cleanup
+        except Exception:  # noqa: BLE001
+            pass  # Best-effort S3 cleanup
 
     @staticmethod
     def _extract_key(storage_path: str) -> str | None:

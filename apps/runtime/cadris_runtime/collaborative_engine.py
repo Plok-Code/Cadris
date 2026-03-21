@@ -302,7 +302,7 @@ async def _run_qualification(
             len(output.questions), memory.mission_id,
         )
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — qualification failure must not block the mission
         logger.error("qualification failed: %s", exc, exc_info=True)
         await event_emitter.emit(EventType.ERROR, {
             "agent": "qualifier",

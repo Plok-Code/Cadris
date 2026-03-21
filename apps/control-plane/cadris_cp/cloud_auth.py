@@ -28,7 +28,7 @@ async def get_id_token(audience: str) -> str | None:
         request = google.auth.transport.requests.Request()
         token = google.oauth2.id_token.fetch_id_token(request, audience)
         return token
-    except Exception:
+    except Exception:  # noqa: BLE001 — GCP auth may fail for many reasons outside our control
         logger.warning("Failed to fetch ID token for %s", audience, exc_info=True)
         return None
 

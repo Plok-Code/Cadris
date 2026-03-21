@@ -73,13 +73,13 @@ $webUrl = "http://127.0.0.1:$resolvedWebPort/projects"
 try {
   $runtimeService = Start-BackgroundService -Root $root -Name "runtime" -Workdir (Join-Path $root "apps\runtime") -Environment @{
     CADRIS_RUNTIME_PROVIDER = $Provider
-  } -Command "python -m uvicorn app.main:app --port 8001"
+  } -Command "python -m uvicorn cadris_runtime.main:app --port 8001"
 
   $rendererService = Start-BackgroundService -Root $root -Name "renderer" -Workdir (Join-Path $root "apps\renderer") -Environment @{} -Command "python -m uvicorn app.main:app --port 8002"
 
   $controlService = Start-BackgroundService -Root $root -Name "control-plane" -Workdir (Join-Path $root "apps\control-plane") -Environment @{
     CONTROL_PLANE_ALLOWED_ORIGINS = "http://127.0.0.1:$resolvedWebPort,http://localhost:$resolvedWebPort"
-  } -Command "python -m uvicorn app.main:app --port 8000"
+  } -Command "python -m uvicorn cadris_cp.main:app --port 8000"
 
   $webService = Start-BackgroundService -Root $root -Name "web" -Workdir $root -Environment @{
     NEXT_PUBLIC_CADRIS_API_URL = "http://127.0.0.1:8000"

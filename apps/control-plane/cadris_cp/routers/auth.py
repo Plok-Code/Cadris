@@ -134,7 +134,7 @@ async def auth_forgot_password(
                         ),
                     },
                 )
-        except Exception:
+        except Exception:  # noqa: BLE001 — email delivery is best-effort
             logger.exception("Failed to send password reset email")
 
     return {"message": msg}

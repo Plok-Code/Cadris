@@ -122,5 +122,5 @@ class FileSearchClient:
         """Cleanup: delete a vector store (e.g. when mission is deleted)."""
         try:
             self._client.vector_stores.delete(vector_store_id)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort cleanup
             logger.warning("Failed to delete vector store %s", vector_store_id, exc_info=True)

@@ -186,7 +186,7 @@ async def run_critic(
                 async for _event in streamed.stream_events():
                     pass
                 break
-            except Exception as retry_exc:
+            except Exception as retry_exc:  # noqa: BLE001 — retry loop classifies errors dynamically
                 err_msg = str(retry_exc).lower()
                 is_permanent = any(k in err_msg for k in (
                     "insufficient_quota", "invalid_api_key", "invalid_request",
@@ -247,7 +247,7 @@ async def run_critic(
 
         return critic_output
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — critic failure must not stop the mission
         logger.error("critic agent failed: %s", exc, exc_info=True)
         await event_emitter.emit(EventType.ERROR, {
             "agent": CRITIC_SPEC.code,
@@ -400,7 +400,7 @@ async def _run_single_agent(
             "iteration": memory.iteration,
         })
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — fallback produces placeholder docs; mission must not stop
         logger.error("agent %s failed: %s", spec.code, exc, exc_info=True)
 
         # ── Fallback: produce minimal placeholder documents ──

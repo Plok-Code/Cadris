@@ -155,5 +155,5 @@ class RuntimeClient:
                     f"{settings.runtime_url}/internal/runtime/missions/{mission_id}",
                     headers=headers,
                 )
-        except Exception:
+        except httpx.HTTPError:
             logger.warning("Failed to cleanup runtime mission %s", mission_id, exc_info=True)

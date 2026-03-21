@@ -75,7 +75,7 @@ def persist_dossier_from_docs(
                 db_session.commit()
 
         logger.info("persisted dossier for mission %s (%d sections, final=%s)", mission_id, len(sections), is_final)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort persistence; must not crash SSE stream
         logger.error("failed to persist dossier for mission %s", mission_id, exc_info=True)
 
 
@@ -110,7 +110,7 @@ def save_sse_state(
         elif etype == "mission_completed":
             persist_dossier_from_docs(db_session, mission_id, collected_docs, is_final=True)
             repository.update_mission_phase(mission_id, "completed")
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort SSE state save; must not crash stream
         logger.error("failed to save SSE state for %s event=%s", mission_id, etype, exc_info=True)
 
 

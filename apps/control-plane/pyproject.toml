@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["app*"]
+include = ["cadris_cp*"]
 
 [tool.uvicorn]
 factory = false

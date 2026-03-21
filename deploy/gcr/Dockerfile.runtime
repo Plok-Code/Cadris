@@ -6,12 +6,12 @@ WORKDIR /app
 COPY apps/runtime/pyproject.toml .
 RUN pip install --no-cache-dir .
 
-COPY apps/runtime/app/ app/
+COPY apps/runtime/cadris_runtime/ cadris_runtime/
 
 # prompt_loader.py resolves: parents[3] / "packages" / "prompts"
-# __file__ = /app/app/prompt_loader.py → parents[3] = / → /packages/prompts/
+# __file__ = /app/cadris_runtime/prompt_loader.py → parents[3] = / → /packages/prompts/
 COPY packages/prompts/ /packages/prompts/
 
 EXPOSE 8001
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["uvicorn", "cadris_runtime.main:app", "--host", "0.0.0.0", "--port", "8001"]

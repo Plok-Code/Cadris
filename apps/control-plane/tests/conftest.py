@@ -12,9 +12,9 @@ from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
 from fastapi.testclient import TestClient
 
-from app.main import app
-from app.database import get_session
-from app.migrations import run_sql_migrations
+from cadris_cp.main import app
+from cadris_cp.database import get_session
+from cadris_cp.migrations import run_sql_migrations
 
 # Create an isolated in-memory SQLite engine for tests.
 # StaticPool ensures all connections share the same in-memory DB.

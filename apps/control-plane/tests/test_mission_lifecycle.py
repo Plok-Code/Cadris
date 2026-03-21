@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import (
+from cadris_cp.models import (
     ArtifactBlock,
     DossierSection,
     MissionAgent,
@@ -148,8 +148,8 @@ def mock_runtime():
     mock.start_mission = AsyncMock()
     mock.resume_mission = AsyncMock()
     mock.cleanup_mission = AsyncMock()
-    with patch("app.routers.projects.runtime_client", mock), \
-         patch("app.routers.missions.runtime_client", mock):
+    with patch("cadris_cp.routers.projects.runtime_client", mock), \
+         patch("cadris_cp.routers.missions.runtime_client", mock):
         yield mock
 
 
@@ -158,7 +158,7 @@ def mock_renderer():
     mock = MagicMock()
     mock.render_markdown = AsyncMock()
     mock.render_pdf = AsyncMock()
-    with patch("app.routers.missions.renderer_client", mock):
+    with patch("cadris_cp.routers.missions.renderer_client", mock):
         yield mock
 
 
@@ -280,7 +280,7 @@ class TestAnswerQuestion:
         mission = self._setup_mission(client, auth_headers, mock_runtime)
         mock_runtime.resume_mission.return_value = _make_resume_response(completed=True)
 
-        from app.models import RendererResponse
+        from cadris_cp.models import RendererResponse
         mock_renderer.render_markdown.return_value = RendererResponse(
             markdown="# Dossier de cadrage\n\nSynthese du projet.\n\n## Vision\n\nContenu vision."
         )
@@ -407,7 +407,7 @@ class TestSharedDossierAccess:
         )
         mock_runtime.resume_mission.return_value = completed
 
-        from app.models import RendererResponse
+        from cadris_cp.models import RendererResponse
         mock_renderer.render_markdown.return_value = RendererResponse(
             markdown="# Dossier de cadrage\n\nContenu legitime"
         )
@@ -486,7 +486,7 @@ class TestFullLifecycle:
 
         # 3. Answer question -> complete
         mock_runtime.resume_mission.return_value = _make_resume_response(completed=True)
-        from app.models import RendererResponse
+        from cadris_cp.models import RendererResponse
         mock_renderer.render_markdown.return_value = RendererResponse(
             markdown="# Dossier Final\n\nContenu complet."
         )

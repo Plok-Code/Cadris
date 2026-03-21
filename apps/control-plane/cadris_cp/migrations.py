@@ -39,7 +39,7 @@ def run_sql_migrations(engine: Engine, sql_dir: Path) -> None:
                     if statement:
                         try:
                             connection.exec_driver_sql(statement)
-                        except Exception as exc:
+                        except Exception as exc:  # noqa: BLE001 — driver errors vary; re-raised if not idempotent
                             # SQLite doesn't support IF NOT EXISTS for ALTER TABLE.
                             # Skip "duplicate column" errors from idempotent migrations.
                             if "duplicate column" in str(exc).lower() or "already exists" in str(exc).lower():

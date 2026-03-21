@@ -147,7 +147,7 @@ async def start_mission_stream(payload: RuntimeStartRequest):
         async def _run():
             try:
                 await runtime_engine.start_mission_stream(payload, emitter)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — SSE must report errors, never drop
                 logger.error("mission stream error: %s", exc, exc_info=True)
                 await emitter.emit(EventType.ERROR, {"error": str(exc)})
             finally:
@@ -198,7 +198,7 @@ async def resume_mission_stream(payload: RuntimeResumeRequest):
         async def _run():
             try:
                 await runtime_engine.resume_mission_stream(payload, emitter)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — SSE must report errors, never drop
                 logger.error("mission resume stream error: %s", exc, exc_info=True)
                 await emitter.emit(EventType.ERROR, {"error": str(exc)})
             finally:

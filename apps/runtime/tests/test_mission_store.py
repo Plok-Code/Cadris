@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from app import mission_store
-from app.memory import AgentQuestion, DocumentDraft, MissionMemory
+from cadris_runtime import mission_store
+from cadris_runtime.memory import AgentQuestion, DocumentDraft, MissionMemory
 
 
 def _sample_memory() -> MissionMemory:

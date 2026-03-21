@@ -35,9 +35,9 @@ function Open-ServiceWindow([string]$Title, [string]$Command) {
   Start-Process cmd.exe -ArgumentList "/k", "title $Title && $Command"
 }
 
-$runtimeCommand = "cd /d ""$root\apps\runtime"" && set CADRIS_RUNTIME_PROVIDER=$Provider && python -m uvicorn app.main:app --port 8001"
+$runtimeCommand = "cd /d ""$root\apps\runtime"" && set CADRIS_RUNTIME_PROVIDER=$Provider && python -m uvicorn cadris_runtime.main:app --port 8001"
 $rendererCommand = "cd /d ""$root\apps\renderer"" && python -m uvicorn app.main:app --port 8002"
-$controlCommand = "cd /d ""$root\apps\control-plane"" && set CONTROL_PLANE_ALLOWED_ORIGINS=http://127.0.0.1:$resolvedWebPort,http://localhost:$resolvedWebPort && python -m uvicorn app.main:app --port 8000"
+$controlCommand = "cd /d ""$root\apps\control-plane"" && set CONTROL_PLANE_ALLOWED_ORIGINS=http://127.0.0.1:$resolvedWebPort,http://localhost:$resolvedWebPort && python -m uvicorn cadris_cp.main:app --port 8000"
 $webCommand = "cd /d ""$root"" && set NEXT_PUBLIC_CADRIS_API_URL=http://127.0.0.1:8000 && set NEXT_PUBLIC_CADRIS_DEV_USER_ID=dev-user && call npm.cmd run dev --workspace @cadris/web -- --port $resolvedWebPort"
 
 Open-ServiceWindow -Title "Cadris Runtime Debug" -Command $runtimeCommand

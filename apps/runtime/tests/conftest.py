@@ -10,7 +10,7 @@ os.environ.setdefault("CADRIS_TRAINING_ENABLED", "false")
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
+from cadris_runtime.main import app
 
 
 @pytest.fixture()

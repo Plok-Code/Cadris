@@ -5,6 +5,8 @@ import json
 import logging
 from uuid import uuid4
 
+import httpx
+import openai
 from fastapi import APIRouter, Depends, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -151,7 +153,7 @@ async def run_mission_stream(
             ):
                 save_sse_state(session, mission_id, event, collected_docs, repository)
                 yield f"event: {event['event']}\ndata: {json.dumps(event['data'], ensure_ascii=False)}\n\n"
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — SSE must never drop silently
             logger.error("SSE stream error: %s", exc, exc_info=True)
             yield f"event: error\ndata: {json.dumps({'error': str(exc)})}\n\n"
 
@@ -185,7 +187,7 @@ async def resume_mission_stream(
     if payload.action == "answer_qualification" and payload.answer_text:
         try:
             answers = json.loads(payload.answer_text) if payload.answer_text.startswith("{") else {}
-        except Exception:
+        except (json.JSONDecodeError, TypeError):
             answers = {}
         if answers:
             repository.save_qualification_answers(mission_id, answers)
@@ -207,7 +209,7 @@ async def resume_mission_stream(
             ):
                 save_sse_state(session, mission_id, event, collected_docs, repository)
                 yield f"event: {event['event']}\ndata: {json.dumps(event['data'], ensure_ascii=False)}\n\n"
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — SSE must never drop silently
             logger.error("SSE resume stream error: %s", exc, exc_info=True)
             yield f"event: error\ndata: {json.dumps({'error': str(exc)})}\n\n"
 
@@ -315,7 +317,7 @@ async def answer_question(
                 supporting_inputs=to_runtime_inputs(mission.inputs),
             )
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 — mark agent run failed then re-raise
         repository.update_agent_run(run_id=run_id, status="failed")
         raise
 
@@ -449,7 +451,7 @@ async def generate_mission_logo(
                 "revised_prompt": image.revised_prompt or prompt,
                 "style": style_key,
             })
-        except Exception as exc:
+        except (openai.OpenAIError, httpx.HTTPError) as exc:
             logger.warning("Logo generation failed for style '%s': %s", style_key, exc)
 
     return {"logos": logos, "count": len(logos)}

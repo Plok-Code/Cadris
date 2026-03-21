@@ -116,7 +116,7 @@ async def research(
             model_used=model,
         )
 
-    except Exception as exc:
+    except (httpx.HTTPError, KeyError, ValueError) as exc:
         logger.warning("Perplexity research failed for query '%s': %s", query[:80], exc)
         return None
 

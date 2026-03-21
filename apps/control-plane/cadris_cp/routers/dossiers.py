@@ -90,7 +90,7 @@ async def get_dossier_pdf(
             try:
                 pdf_bytes = md_to_pdf_bytes(section.title, section.content)
                 zf.writestr(pdf_path, pdf_bytes)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — fallback to .md on any PDF failure
                 logger.warning("PDF generation failed for %s: %s", section.id, exc)
                 zf.writestr(pdf_path.replace(".pdf", ".md"), f"# {section.title}\n\n{section.content}")
     buffer.seek(0)

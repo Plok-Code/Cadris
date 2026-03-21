@@ -44,7 +44,7 @@ if settings.state_store_url:
         _engine = create_engine(settings.state_store_url, future=True)
         _metadata.create_all(_engine)
         logger.info("mission_store: using database backend for snapshots")
-    except Exception:
+    except Exception:  # noqa: BLE001 — DB init may fail; file snapshots are the fallback
         logger.exception("mission_store: failed to initialize database backend, falling back to file snapshots")
         _engine = None
 
@@ -150,7 +150,7 @@ def _read_file_snapshot(mission_id: str) -> tuple[MissionMemory, datetime] | Non
             touched_at = touched_at.replace(tzinfo=UTC)
         memory = _deserialize_memory(wrapper["mission"])
         return memory, touched_at
-    except Exception:
+    except (json.JSONDecodeError, KeyError, ValueError, OSError):
         logger.exception("mission_store: failed to read snapshot %s", mission_id)
         path.unlink(missing_ok=True)
         return None

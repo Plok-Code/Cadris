@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from unittest.mock import patch, MagicMock
 
-from app.config import settings
+from cadris_cp.config import settings
 
 
 class TestBillingPlans:
@@ -75,7 +75,7 @@ class TestBillingPortal:
 
 class TestMissionLimit:
     def test_free_plan_check(self):
-        from app.billing import check_mission_limit, PLANS
+        from cadris_cp.billing import check_mission_limit, PLANS
         from unittest.mock import MagicMock
 
         user = MagicMock()
@@ -87,7 +87,7 @@ class TestMissionLimit:
         assert check_mission_limit(user) is False
 
     def test_pro_plan_limit(self):
-        from app.billing import check_mission_limit
+        from cadris_cp.billing import check_mission_limit
 
         user = MagicMock()
         user.plan = "pro"

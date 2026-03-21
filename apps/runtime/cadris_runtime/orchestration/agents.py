@@ -1,4 +1,4 @@
-"""Agent constructors -- thin re-exports from app.agents."""
+"""Agent constructors -- thin re-exports from cadris_runtime.agents."""
 
 from __future__ import annotations
 

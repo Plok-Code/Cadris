@@ -123,7 +123,7 @@ class MissionRepoMixin:
             if dossier and dossier.sections_json:
                 try:
                     section_count = len(json.loads(dossier.sections_json))
-                except Exception:
+                except (json.JSONDecodeError, TypeError):
                     pass
             results.append({
                 "id": m.id,
@@ -181,7 +181,7 @@ class MissionRepoMixin:
         if dossier and dossier.sections_json:
             try:
                 documents = json.loads(dossier.sections_json)
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
                 pass
 
         questions = sorted(record.questions, key=lambda q: (q.sort_order, q.created_at))
@@ -198,12 +198,12 @@ class MissionRepoMixin:
 
         try:
             qual_answers = json.loads(record.qualification_answers_json or "{}")
-        except Exception:
+        except (json.JSONDecodeError, TypeError):
             qual_answers = {}
 
         try:
             qual_questions = json.loads(record.qualification_questions_json or "[]")
-        except Exception:
+        except (json.JSONDecodeError, TypeError):
             qual_questions = []
 
         return {
