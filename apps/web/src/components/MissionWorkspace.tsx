@@ -237,7 +237,7 @@ export function MissionWorkspace({
               <article className="panel">
                 <div className="notice">
                   {mission.dossierReady
-                    ? "Toutes les questions sont resolues. Le dossier est pret."
+                    ? "Toutes les questions sont résolues. Le dossier est prêt."
                     : "La mission est en cours de traitement."}
                 </div>
                 {mission.dossierReady ? (
@@ -390,7 +390,7 @@ export function MissionWorkspace({
                   className="button button--secondary"
                   href={mission.dossierReady ? `/dossiers/${mission.id}` : "/projects"}
                 >
-                  {mission.dossierReady ? "Lire le dossier" : "Retour a Mes projets"}
+                  {mission.dossierReady ? "Lire le dossier" : "Retour à Mes projets"}
                 </Link>
               </div>
             </article>

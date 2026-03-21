@@ -22,7 +22,7 @@ function ResetPasswordContent() {
             <div className="login__verify">
               <h2 className="login__verify-title">Lien invalide</h2>
               <p className="login__verify-text">
-                Ce lien de reinitialisation est invalide ou a expire.
+                Ce lien de réinitialisation est invalide ou a expiré.
               </p>
               <div style={{ marginTop: "1.5rem" }}>
                 <a href="/forgot-password" className="login__link">Demander un nouveau lien</a>
@@ -39,7 +39,7 @@ function ResetPasswordContent() {
     setError("");
 
     if (password.length < 8) {
-      setError("Le mot de passe doit contenir au moins 8 caracteres.");
+      setError("Le mot de passe doit contenir au moins 8 caractères.");
       return;
     }
     if (password !== confirmPassword) {
@@ -59,7 +59,7 @@ function ResetPasswordContent() {
         router.push("/login?reset=1");
       } else {
         const data = await res.json().catch(() => null);
-        setError(data?.detail?.message || data?.message || "Lien invalide ou expire.");
+        setError(data?.detail?.message || data?.message || "Lien invalide ou expiré.");
       }
     } catch {
       setError("Erreur de connexion au serveur.");
@@ -80,7 +80,7 @@ function ResetPasswordContent() {
           <input
             type="password"
             className="login__credentials-input"
-            placeholder="Nouveau mot de passe (8 caracteres min.)"
+            placeholder="Nouveau mot de passe (8 caractères min.)"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             disabled={loading}
@@ -102,10 +102,10 @@ function ResetPasswordContent() {
             className="login__btn login__btn--credentials"
             disabled={loading || !password || !confirmPassword}
           >
-            {loading ? "Reinitialisation..." : "Reinitialiser le mot de passe"}
+            {loading ? "Réinitialisation..." : "Réinitialiser le mot de passe"}
           </button>
           <div className="login__links" style={{ justifyContent: "center" }}>
-            <a href="/login" className="login__link">Retour a la connexion</a>
+            <a href="/login" className="login__link">Retour à la connexion</a>
           </div>
         </form>
       </div>

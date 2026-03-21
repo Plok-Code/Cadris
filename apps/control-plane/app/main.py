@@ -415,12 +415,20 @@ async def create_mission(
         raise AppError.not_found("project_not_found", "Project not found.")
 
     from .models import FLOW_LABELS
+    from .billing import check_mission_limit
 
     flow_code = payload.flow_code
     flow_label = FLOW_LABELS.get(flow_code, flow_code)
 
     db_user = repository.get_user(user.id)
     user_plan = db_user.plan if db_user else "free"
+
+    # Plan enforcement (same as stream endpoint)
+    if db_user and not check_mission_limit(db_user, session):
+        raise AppError.forbidden(
+            "Vous avez atteint la limite de missions pour votre plan. "
+            "Passez au plan supérieur pour plus de missions."
+        )
 
     mission_id = f"mission_{uuid4().hex[:10]}"
     runtime_response = await runtime_client.start_mission(
@@ -612,10 +620,10 @@ async def run_mission_stream(
 
     # ── Plan enforcement: check mission limit ──
     db_user = repository.get_user(user.id)
-    if db_user and not check_mission_limit(db_user):
+    if db_user and not check_mission_limit(db_user, session):
         raise AppError.forbidden(
             "Vous avez atteint la limite de missions pour votre plan. "
-            "Passez au plan Pro pour des missions illimitees."
+            "Passez au plan supérieur pour plus de missions."
         )
 
     # Auto-create a project for now (simplified flow)
@@ -1634,15 +1642,13 @@ async def generate_mission_logo(
     session: Session = Depends(get_session),
 ):
     """Generate logo variants for a mission (Expert plan only)."""
-    from . import repository as repo
+    repository = ControlPlaneRepository(session)
 
-    mission = repo.get_mission(mission_id, session)
+    mission = repository.get_mission_for_user(user.id, mission_id)
     if not mission:
-        raise AppError.not_found("mission_not_found", "Mission non trouvee.")
-    if mission.project.user_id != user.id:
-        raise AppError.forbidden("not_owner", "Acces refuse.")
+        raise AppError.not_found("mission_not_found", "Mission non trouvée.")
 
-    db_user = repo.get_user(user.id)
+    db_user = repository.get_user(user.id)
     if not db_user or db_user.plan not in ("expert",):
         raise AppError.forbidden("plan_required", "La generation de logo necessite le plan Expert.")
 

@@ -78,7 +78,7 @@ export default function UserMenu() {
             className="user-menu__item user-menu__item--danger"
             onClick={() => signOut({ callbackUrl: "/login" })}
           >
-            Se deconnecter
+            Se déconnecter
           </button>
         </div>
       )}

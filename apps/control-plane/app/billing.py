@@ -207,11 +207,32 @@ def _handle_subscription_deleted(sub_data, db: Session):
     db.commit()
 
 
-def check_mission_limit(user: UserRecord) -> bool:
+def check_mission_limit(user: UserRecord, db: Session | None = None) -> bool:
     """Check if user can create a new mission based on their plan.
+
+    Also resets the monthly counter if we crossed into a new month,
+    so the check is always accurate.
 
     Returns True if allowed, False if limit reached.
     """
+    from datetime import datetime, UTC
+    now = datetime.now(UTC)
+
+    # Reset counter if we're in a new month (fix: do it at check time, not only at increment)
+    if user.month_reset_at:
+        try:
+            last_reset = datetime.fromisoformat(user.month_reset_at)
+            if now.month != last_reset.month or now.year != last_reset.year:
+                user.missions_this_month = 0
+                user.month_reset_at = now.isoformat()
+                if db:
+                    db.commit()
+        except (ValueError, TypeError):
+            user.missions_this_month = 0
+            user.month_reset_at = now.isoformat()
+            if db:
+                db.commit()
+
     plan_info = PLANS.get(user.plan, PLANS["free"])
     limit = plan_info["missions_per_month"]
 

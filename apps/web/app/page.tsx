@@ -58,8 +58,8 @@ export default function HomePage() {
         </div>
         {mobileMenuOpen && (
           <div className="lp-nav__mobile">
-            <a href="#problemes" className="lp-nav__mobile-link" onClick={() => setMobileMenuOpen(false)}>Problemes</a>
-            <a href="#comment" className="lp-nav__mobile-link" onClick={() => setMobileMenuOpen(false)}>Comment ca marche</a>
+            <a href="#problemes" className="lp-nav__mobile-link" onClick={() => setMobileMenuOpen(false)}>Problèmes</a>
+            <a href="#comment" className="lp-nav__mobile-link" onClick={() => setMobileMenuOpen(false)}>Comment ça marche</a>
             <a href="#tarifs" className="lp-nav__mobile-link" onClick={() => setMobileMenuOpen(false)}>Tarifs</a>
             <div className="lp-nav__mobile-divider" />
             {isLoggedIn ? (

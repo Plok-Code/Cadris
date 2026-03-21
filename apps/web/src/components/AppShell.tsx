@@ -25,10 +25,11 @@ export function AppShell({ heading, description, eyebrow, breadcrumbs, children 
       <div className="app-shell__inner">
         <nav className="top-nav">
           <div className="top-nav__brand">
-            <div className="top-nav__symbol">C</div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/cadris-favicon.svg" alt="Cadris" className="top-nav__symbol-img" width={28} height={28} />
             <div>
-              <div className="top-nav__title">CADRIS.AI</div>
-              <div className="top-nav__subtitle">Mission documentaire multi-agents</div>
+              <div className="top-nav__title">CADRIS</div>
+              <div className="top-nav__subtitle">Cadrage projet IA</div>
             </div>
           </div>
           <div className="top-nav__links">

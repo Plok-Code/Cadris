@@ -17,7 +17,7 @@ const ibmPlexMono = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: "Cadris",
-  description: "Mission documentaire multi-agents pour cadrer un projet."
+  description: "Le chainon manquant du vibe coding. Cadrez votre projet avant de coder."
 };
 
 export default function RootLayout({
@@ -30,7 +30,11 @@ export default function RootLayout({
       <body className={`${publicSans.variable} ${ibmPlexMono.variable}`}>
         <SessionWrapper>
           <header className="app-header">
-            <a href="/" className="app-header__logo">Cadris</a>
+            <a href="/" className="app-header__logo" aria-label="Cadris — Accueil">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/cadris-favicon.svg" alt="" className="app-header__logo-symbol" width={26} height={26} />
+              <span className="app-header__logo-wordmark">CADRIS</span>
+            </a>
             <UserMenu />
           </header>
           {children}

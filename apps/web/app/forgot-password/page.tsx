@@ -34,16 +34,16 @@ function ForgotPasswordContent() {
             <h1 className="login__title">Cadris</h1>
             <div className="login__verify">
               <div className="login__verify-icon">&#9993;&#65039;</div>
-              <h2 className="login__verify-title">Email envoye</h2>
+              <h2 className="login__verify-title">Email envoyé</h2>
               <p className="login__verify-text">
                 Si un compte existe avec l&apos;adresse <strong>{email}</strong>,
-                vous recevrez un lien de reinitialisation.
+                vous recevrez un lien de réinitialisation.
               </p>
               <p className="login__verify-hint">
-                Le lien expire dans 1 heure. Pensez a verifier vos spams.
+                Le lien expire dans 1 heure. Pensez à vérifier vos spams.
               </p>
               <div style={{ marginTop: "1.5rem" }}>
-                <a href="/login" className="login__link">Retour a la connexion</a>
+                <a href="/login" className="login__link">Retour à la connexion</a>
               </div>
             </div>
           </div>
@@ -58,7 +58,7 @@ function ForgotPasswordContent() {
         <div className="login__header">
           <h1 className="login__title">Cadris</h1>
           <p className="login__subtitle">
-            Entrez votre email pour recevoir un lien de reinitialisation.
+            Entrez votre email pour recevoir un lien de réinitialisation.
           </p>
         </div>
 
@@ -80,7 +80,7 @@ function ForgotPasswordContent() {
             {loading ? "Envoi..." : "Envoyer le lien"}
           </button>
           <div className="login__links" style={{ justifyContent: "center" }}>
-            <a href="/login" className="login__link">Retour a la connexion</a>
+            <a href="/login" className="login__link">Retour à la connexion</a>
           </div>
         </form>
       </div>

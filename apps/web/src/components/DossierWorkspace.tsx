@@ -54,7 +54,7 @@ export function DossierWorkspace({
           const body = await response.json();
           throw new Error(body.message ?? `Erreur ${response.status}`);
         }
-        throw new Error(`Erreur de telechargement (${response.status})`);
+        throw new Error(`Erreur de téléchargement (${response.status})`);
       }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
@@ -66,7 +66,7 @@ export function DossierWorkspace({
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (err) {
-      setDownloadError(err instanceof Error ? err.message : "Erreur de telechargement");
+      setDownloadError(err instanceof Error ? err.message : "Erreur de téléchargement");
     } finally {
       setDownloadingFormat(null);
     }
@@ -103,7 +103,7 @@ export function DossierWorkspace({
           setError(null);
         })
         .catch((shareError) => {
-          setError(shareError instanceof Error ? shareError.message : "Impossible de creer le lien.");
+          setError(shareError instanceof Error ? shareError.message : "Impossible de créer le lien.");
         });
     });
   }
@@ -136,7 +136,6 @@ export function DossierWorkspace({
       description={dossier?.summary ?? ""}
       breadcrumbs={[
         { label: "Mes projets", href: "/projects" },
-        { label: "Mission", href: `/missions/${missionId}` },
         { label: "Dossier" },
       ]}
     >
@@ -181,7 +180,7 @@ export function DossierWorkspace({
                   disabled={downloadingFormat !== null}
                   type="button"
                 >
-                  {downloadingFormat === "markdown" ? "Telechargement..." : "Telecharger MD"}
+                  {downloadingFormat === "markdown" ? "Téléchargement..." : "Télécharger MD"}
                 </button>
                 <button
                   className="dossier__export-btn dossier__export-btn--secondary"
@@ -189,7 +188,7 @@ export function DossierWorkspace({
                   disabled={downloadingFormat !== null}
                   type="button"
                 >
-                  {downloadingFormat === "pdf" ? "Telechargement..." : "Telecharger PDF"}
+                  {downloadingFormat === "pdf" ? "Téléchargement..." : "Télécharger PDF"}
                 </button>
                 <button
                   className="dossier__export-btn dossier__export-btn--secondary"
@@ -197,7 +196,7 @@ export function DossierWorkspace({
                   disabled={downloadingFormat !== null}
                   type="button"
                 >
-                  {downloadingFormat === "pptx" ? "Telechargement..." : "Telecharger PPTX"}
+                  {downloadingFormat === "pptx" ? "Téléchargement..." : "Télécharger PPTX"}
                 </button>
                 {downloadError && (
                   <p style={{ color: "var(--ds-status-danger-fg, #e74c3c)", fontSize: "0.8125rem", marginTop: 8 }}>
@@ -213,7 +212,7 @@ export function DossierWorkspace({
                 <>
                   {activeSection.id === "user_guide" && (
                     <div className="dossier__guide-banner">
-                      <strong>À lire en premier</strong> — Ce guide vous accompagne pas a pas pour lancer votre projet avec Claude Code.
+                      <strong>À lire en premier</strong> — Ce guide vous accompagne pas à pas pour lancer votre projet avec votre outil de code IA.
                     </div>
                   )}
                   <div className="dossier__doc-header">

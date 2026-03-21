@@ -17,14 +17,19 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, UTC
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Store in project root / data / training
-DATA_DIR = Path(__file__).parent.parent.parent.parent / "data" / "training"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+# Disabled by default — opt-in via env var to avoid PII leaks
+TRAINING_ENABLED = os.getenv("CADRIS_TRAINING_ENABLED", "false").lower() in ("true", "1", "yes")
+
+# Store in runtime-local data dir (not project root)
+DATA_DIR = Path(__file__).parent.parent / "data" / "training"
+if TRAINING_ENABLED:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 EVENTS_FILE = DATA_DIR / "events.jsonl"
 FEEDBACK_FILE = DATA_DIR / "feedback.jsonl"
@@ -32,6 +37,8 @@ FEEDBACK_FILE = DATA_DIR / "feedback.jsonl"
 
 def _append_jsonl(filepath: Path, data: dict) -> None:
     """Append one JSON line to a file."""
+    if not TRAINING_ENABLED:
+        return
     try:
         with open(filepath, "a", encoding="utf-8") as f:
             f.write(json.dumps(data, ensure_ascii=False, default=str) + "\n")

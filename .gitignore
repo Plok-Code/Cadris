@@ -31,3 +31,4 @@ package-lock.json
 *.err
 nul
 apps/runtime/data/
+data/training/
