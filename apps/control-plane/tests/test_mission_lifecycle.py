@@ -4,7 +4,7 @@ Mocks RuntimeClient and RendererClient to avoid real HTTP calls.
 """
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -144,17 +144,21 @@ def _make_resume_response(*, completed=False) -> RuntimeResumeResponse:
 
 @pytest.fixture()
 def mock_runtime():
-    with patch("app.main.runtime_client") as mock:
-        mock.start_mission = AsyncMock()
-        mock.resume_mission = AsyncMock()
+    mock = MagicMock()
+    mock.start_mission = AsyncMock()
+    mock.resume_mission = AsyncMock()
+    mock.cleanup_mission = AsyncMock()
+    with patch("app.routers.projects.runtime_client", mock), \
+         patch("app.routers.missions.runtime_client", mock):
         yield mock
 
 
 @pytest.fixture()
 def mock_renderer():
-    with patch("app.main.renderer_client") as mock:
-        mock.render_markdown = AsyncMock()
-        mock.render_pdf = AsyncMock()
+    mock = MagicMock()
+    mock.render_markdown = AsyncMock()
+    mock.render_pdf = AsyncMock()
+    with patch("app.routers.missions.renderer_client", mock):
         yield mock
 
 
