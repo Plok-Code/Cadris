@@ -6,7 +6,7 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "tsc --noEmit",
+    "lint": "eslint . && tsc --noEmit",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -26,7 +26,7 @@
     "@types/react": "19.0.10",
     "@types/react-dom": "19.0.4",
     "eslint": "9.22.0",
-    "eslint-config-next": "15.5.12",
+    "eslint-config-next": "^16.2.1",
     "typescript": "5.8.2"
   }
 }

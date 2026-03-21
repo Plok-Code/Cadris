@@ -11,9 +11,6 @@ import type {
   DocumentUpdatedEvent,
   AgentCompletedEvent,
   WaveStartedEvent,
-  WaveReviewEvent,
-  WaveCompletedEvent,
-  MissionCompletedEvent,
   QualificationQuestionsEvent,
 } from "@cadris/schemas";
 import { cadrisApi } from "../../src/lib/api";
@@ -127,7 +124,7 @@ function MissionHeader({ isActive, onQuit }: { isActive: boolean; onQuit: () => 
 // ── Component ─────────────────────────────────────────────
 
 function MissionPageContent() {
-  const { data: session, status: authStatus } = useSession();
+  const { data: _session, status: authStatus } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
   const resumeId = searchParams.get("resume");
@@ -344,6 +341,7 @@ function MissionPageContent() {
         setError(data.error as string);
         break;
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: stable callback
   }, []);
 
   // ── Resume from saved state ────────────────────────────
@@ -998,7 +996,7 @@ function MissionPageContent() {
     // Show ONLY current wave docs — previous waves are locked
     const allBlockDocs = documents.filter((d) => d.wave === currentWave && !d.locked);
     const doc = allBlockDocs[reviewIndex] ?? allBlockDocs[0];
-    const allValidated = allBlockDocs.length > 0 && allBlockDocs.every((d) => d.validated);
+    const _allValidated = allBlockDocs.length > 0 && allBlockDocs.every((d) => d.validated);
 
     if (showBlockConfirm) {
       return (

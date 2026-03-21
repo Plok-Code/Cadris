@@ -43,6 +43,7 @@ export function MissionWorkspace({
 
   useEffect(() => {
     if (initialMission || initialError) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync initialization from props
       setIsLoading(false);
       return;
     }
@@ -168,7 +169,7 @@ export function MissionWorkspace({
                 <div className="section-eyebrow">Sources</div>
                 <h2 className="section-title">Uploads mission</h2>
                 <p className="section-description">
-                  Attache un fichier a la mission. L'ingestion V1 enregistre la source et un apercu local, avant le
+                  Attache un fichier a la mission. L&apos;ingestion V1 enregistre la source et un apercu local, avant le
                   retrieval.
                 </p>
               </div>

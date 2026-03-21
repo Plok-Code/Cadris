@@ -6,7 +6,6 @@ import remarkGfm from "remark-gfm";
 import type { DossierReadModel, ExportReadModel } from "@cadris/schemas";
 import { AppShell } from "./AppShell";
 import { cadrisApi } from "../lib/api";
-import { ClientDateTime } from "./ClientDateTime";
 import { StatusTag } from "./StatusTag";
 
 interface DossierWorkspaceProps {
@@ -24,8 +23,8 @@ export function DossierWorkspace({
   const [error, setError] = useState<string | null>(initialError);
   const [isLoading, setIsLoading] = useState(initialDossier === null && initialError === null);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
-  const [exports, setExports] = useState<ExportReadModel[]>([]);
-  const [isSharePending, startShareTransition] = useTransition();
+  const [_exports, setExports] = useState<ExportReadModel[]>([]);
+  const [_isSharePending, startShareTransition] = useTransition();
   const [selectedSection, setSelectedSection] = useState<string | null>(null);
   const [downloadingFormat, setDownloadingFormat] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -93,7 +92,7 @@ export function DossierWorkspace({
     void cadrisApi.listExports(missionId).then(setExports).catch(() => {});
   }, [dossier, missionId]);
 
-  function handleCreateShareLink() {
+  function _handleCreateShareLink() {
     startShareTransition(() => {
       void cadrisApi
         .createShareLink(missionId)
@@ -108,7 +107,7 @@ export function DossierWorkspace({
     });
   }
 
-  function handleRevokeExport(exportId: string) {
+  function _handleRevokeExport(exportId: string) {
     void cadrisApi
       .revokeExport(exportId)
       .then((revoked) => {

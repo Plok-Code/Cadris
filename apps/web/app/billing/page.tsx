@@ -79,7 +79,7 @@ export default function BillingPage() {
 }
 
 function BillingContent() {
-  const { data: session } = useSession();
+  const { data: _session } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [billing, setBilling] = useState<BillingData | null>(null);
@@ -92,6 +92,7 @@ function BillingContent() {
 
   useEffect(() => {
     fetchBilling();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
   }, []);
 
   async function fetchBilling() {

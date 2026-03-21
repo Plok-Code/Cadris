@@ -19,6 +19,7 @@
     "check:local": "scripts\\check-local.cmd"
   },
   "dependencies": {
+    "es-abstract": "^1.24.1",
     "resend": "^6.9.4"
   }
 }

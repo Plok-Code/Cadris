@@ -31,7 +31,6 @@ export default function RootLayout({
         <SessionWrapper>
           <header className="app-header">
             <a href="/" className="app-header__logo" aria-label="Cadris — Accueil">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/cadris-favicon.svg" alt="" className="app-header__logo-symbol" width={26} height={26} />
               <span className="app-header__logo-wordmark">CADRIS</span>
             </a>
