@@ -112,9 +112,17 @@ async def submit_feedback(payload: FeedbackRequest):
 async def start_mission_stream(payload: RuntimeStartRequest):
     """Launch a collaborative mission and stream SSE events in real-time."""
     if not isinstance(runtime_engine, CollaborativeEngine):
-        # Fallback: run non-streaming and return a single event
+        # Fallback: wrap non-streaming result as SSE so control-plane can consume it
         result = await runtime_engine.start_mission(payload)
-        return result
+
+        async def fallback_sse():
+            yield f"event: mission_completed\ndata: {json.dumps(result if isinstance(result, dict) else {'ok': True}, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(
+            fallback_sse(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+        )
 
     async def event_generator():
         emitter = EventEmitter()
@@ -151,7 +159,15 @@ async def resume_mission_stream(payload: RuntimeResumeRequest):
     """Resume a collaborative mission with user answer and stream SSE events."""
     if not isinstance(runtime_engine, CollaborativeEngine):
         result = await runtime_engine.resume_mission(payload)
-        return result
+
+        async def fallback_sse():
+            yield f"event: mission_completed\ndata: {json.dumps(result if isinstance(result, dict) else {'ok': True}, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(
+            fallback_sse(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+        )
 
     async def event_generator():
         emitter = EventEmitter()

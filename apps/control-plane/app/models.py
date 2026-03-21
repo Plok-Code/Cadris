@@ -187,6 +187,7 @@ class CreateProjectRequest(ApiModel):
 class CreateMissionRequest(ApiModel):
     intake_text: str = Field(min_length=20, max_length=5000)
     flow_code: FlowCode = "demarrage"
+    template_id: str | None = Field(default=None, max_length=50)
 
 
 class AnswerQuestionRequest(ApiModel):
@@ -315,12 +316,18 @@ class RendererResponse(ApiModel):
     markdown: str
 
 
+class QualificationQuestionItem(ApiModel):
+    question: str
+    context: str = ""
+
+
 class MissionStateResponse(ApiModel):
     id: str
     phase: str
     current_wave: int
     intake_text: str
     qualification_answers: dict[str, str] = Field(default_factory=dict)
+    qualification_questions: list[QualificationQuestionItem] = Field(default_factory=list)
     documents: list[DossierSection] = Field(default_factory=list)
     dossier_ready: bool = False
     question_history: list[MissionQuestion] = Field(default_factory=list)

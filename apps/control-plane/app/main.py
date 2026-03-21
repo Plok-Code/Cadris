@@ -53,6 +53,7 @@ from .models import (
     RuntimeStartRequest,
     SearchMissionInputsRequest,
     SearchMissionInputsResponse,
+    MissionStateResponse,
     UploadMissionInputResponse,
     ValidateDocsRequest,
     utc_now,
@@ -795,7 +796,7 @@ async def get_mission(
     return mission
 
 
-@app.get("/api/missions/{mission_id}/state")
+@app.get("/api/missions/{mission_id}/state", response_model=MissionStateResponse)
 async def get_mission_state(
     mission_id: str,
     user: AuthenticatedUser = Depends(require_user),
