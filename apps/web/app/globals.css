@@ -3847,6 +3847,37 @@ body:has(.lp) .app-header {
   color: var(--ds-accent-strong);
 }
 
+.projects__section-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ds-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 20px 0 8px;
+}
+.projects__section-title:first-child {
+  margin-top: 0;
+}
+
+.projects__badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+.projects__badge--progress {
+  background: #f0e6d2;
+  color: #8a6d3b;
+}
+
+.projects__row-title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .projects__row-delete {
   flex-shrink: 0;
   width: 36px;

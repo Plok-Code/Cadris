@@ -442,6 +442,104 @@ class ControlPlaneRepository:
             return None
         return self._to_dossier_read_model(record)
 
+    # ── Mission persistence helpers ──────────────────────────
+
+    def update_mission_phase(self, mission_id: str, phase: str) -> None:
+        record = self.session.get(MissionRecord, mission_id)
+        if record:
+            record.phase = phase
+            record.updated_at = utc_now()
+            self.session.commit()
+
+    def update_mission_wave(self, mission_id: str, wave: int) -> None:
+        record = self.session.get(MissionRecord, mission_id)
+        if record:
+            record.current_wave = wave
+            record.updated_at = utc_now()
+            self.session.commit()
+
+    def save_qualification_answers(self, mission_id: str, answers: dict[str, str]) -> None:
+        record = self.session.get(MissionRecord, mission_id)
+        if record:
+            record.qualification_answers_json = json.dumps(answers, ensure_ascii=False)
+            record.updated_at = utc_now()
+            self.session.commit()
+
+    def update_dossier_doc_status(
+        self,
+        mission_id: str,
+        validated_ids: list[str],
+        corrections: dict[str, str],
+    ) -> None:
+        """Update validated/correction fields on dossier sections."""
+        from .models import DossierSection as DossierSectionModel
+
+        record = self.session.get(DossierRecord, mission_id)
+        if not record or not record.sections_json:
+            return
+
+        sections = json.loads(record.sections_json)
+        for section in sections:
+            sid = section.get("id", "")
+            if sid in validated_ids:
+                section["validated"] = True
+            if sid in corrections:
+                section["correction"] = corrections[sid]
+
+        record.sections_json = json.dumps(sections, ensure_ascii=False)
+        record.updated_at = utc_now()
+        self.session.commit()
+
+    def get_mission_state(self, user_id: str, mission_id: str) -> dict | None:
+        """Get full mission state for resume, including dossier sections and questions."""
+        statement = (
+            select(MissionRecord)
+            .join(ProjectRecord, MissionRecord.project_id == ProjectRecord.id)
+            .where(MissionRecord.id == mission_id, ProjectRecord.user_id == user_id)
+        )
+        record = self.session.scalar(statement)
+        if record is None:
+            return None
+
+        # Load dossier sections
+        documents = []
+        dossier = self.session.get(DossierRecord, mission_id)
+        if dossier and dossier.sections_json:
+            try:
+                documents = json.loads(dossier.sections_json)
+            except Exception:
+                pass
+
+        # Load question history
+        questions = sorted(record.questions, key=lambda q: (q.sort_order, q.created_at))
+        question_history = [
+            {
+                "id": q.id,
+                "title": q.title,
+                "body": q.body,
+                "status": q.status,
+                "answerText": q.answer_text,
+            }
+            for q in questions
+        ]
+
+        # Parse qualification answers
+        try:
+            qual_answers = json.loads(record.qualification_answers_json or "{}")
+        except Exception:
+            qual_answers = {}
+
+        return {
+            "id": record.id,
+            "phase": record.phase or "intake",
+            "currentWave": record.current_wave or 0,
+            "intakeText": record.intake_text or "",
+            "qualificationAnswers": qual_answers,
+            "documents": documents,
+            "dossierReady": bool(record.dossier_ready),
+            "questionHistory": question_history,
+        }
+
     @staticmethod
     def _to_project_summary(record: ProjectRecord) -> ProjectSummary:
         return ProjectSummary(

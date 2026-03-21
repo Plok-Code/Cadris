@@ -11,11 +11,13 @@ import type {
   ExportReadModel,
   MissionListItem,
   MissionReadModel,
+  MissionStateResponse,
   ProjectSummary,
   RuntimeEvent,
   SearchMissionInputsRequest,
   SearchMissionInputsResponse,
-  UploadMissionInputResponse
+  UploadMissionInputResponse,
+  ValidateDocsRequest,
 } from "@cadris/schemas";
 
 export interface CadrisApiClientOptions {
@@ -71,6 +73,17 @@ export class CadrisApiClient {
     return this.request<UploadMissionInputResponse>(`/api/missions/${missionId}/inputs/upload`, {
       method: "POST",
       body: formData
+    });
+  }
+
+  getMissionState(missionId: string) {
+    return this.request<MissionStateResponse>(`/api/missions/${missionId}/state`);
+  }
+
+  validateDocs(missionId: string, payload: ValidateDocsRequest) {
+    return this.request<void>(`/api/missions/${missionId}/validate-docs`, {
+      method: "POST",
+      body: JSON.stringify(payload),
     });
   }
 

@@ -72,6 +72,9 @@ class MissionRecord(Base):
     intake_text: Mapped[str] = mapped_column(Text())
     timeline_json: Mapped[str] = mapped_column(Text())
     dossier_ready: Mapped[bool] = mapped_column(Boolean, default=False)
+    phase: Mapped[str] = mapped_column(Text(), default="intake")
+    current_wave: Mapped[int] = mapped_column(Integer, default=0)
+    qualification_answers_json: Mapped[str] = mapped_column(Text(), default="{}")
     created_at: Mapped[str] = mapped_column(default=utc_now)
     updated_at: Mapped[str] = mapped_column(default=utc_now)
 

@@ -54,6 +54,7 @@ from .models import (
     SearchMissionInputsRequest,
     SearchMissionInputsResponse,
     UploadMissionInputResponse,
+    ValidateDocsRequest,
     utc_now,
 )
 from .migrations import run_sql_migrations
@@ -519,6 +520,9 @@ def _persist_dossier_from_docs(
                 title=doc.get("title", doc_id),
                 content=doc.get("content", ""),
                 certainty=doc.get("certainty", "unknown"),
+                agent=doc.get("agent", ""),
+                version=doc.get("version", 1),
+                wave=doc.get("wave", 0),
             )
 
         sections = list(existing_map.values())
@@ -552,6 +556,39 @@ def _persist_dossier_from_docs(
         logger.info("persisted dossier for mission %s (%d sections, final=%s)", mission_id, len(sections), is_final)
     except Exception:
         logger.error("failed to persist dossier for mission %s", mission_id, exc_info=True)
+
+
+def _save_sse_state(
+    db_session: Session,
+    mission_id: str,
+    event: dict,
+    collected_docs: dict[str, dict],
+    repository: ControlPlaneRepository,
+) -> None:
+    """Save mission state at each SSE checkpoint for resume support."""
+    etype = event["event"]
+    data = event.get("data", {})
+
+    try:
+        if etype == "document_updated":
+            d = data
+            collected_docs[d.get("doc_id", "")] = d
+            # Incremental save so docs survive mid-wave disconnects
+            _persist_dossier_from_docs(db_session, mission_id, collected_docs)
+        elif etype == "qualification_questions":
+            repository.update_mission_phase(mission_id, "qualification")
+        elif etype == "wave_started":
+            wave = data.get("wave", 0)
+            repository.update_mission_wave(mission_id, wave)
+            repository.update_mission_phase(mission_id, "wave_running")
+        elif etype == "wave_completed":
+            _persist_dossier_from_docs(db_session, mission_id, collected_docs)
+            repository.update_mission_phase(mission_id, "doc_review")
+        elif etype == "mission_completed":
+            _persist_dossier_from_docs(db_session, mission_id, collected_docs, is_final=True)
+            repository.update_mission_phase(mission_id, "completed")
+    except Exception:
+        logger.error("failed to save SSE state for %s event=%s", mission_id, etype, exc_info=True)
 
 
 # ── SSE streaming endpoint ─────────────────────────────────
@@ -645,14 +682,7 @@ async def run_mission_stream(
                     supporting_inputs=[],
                 )
             ):
-                if event["event"] == "document_updated":
-                    d = event["data"]
-                    collected_docs[d.get("doc_id", "")] = d
-                elif event["event"] == "wave_completed":
-                    # Persist docs after each wave so we accumulate across waves
-                    _persist_dossier_from_docs(session, mission_id, collected_docs)
-                elif event["event"] == "mission_completed":
-                    _persist_dossier_from_docs(session, mission_id, collected_docs, is_final=True)
+                _save_sse_state(session, mission_id, event, collected_docs, repository)
                 yield f"event: {event['event']}\ndata: {json.dumps(event['data'], ensure_ascii=False)}\n\n"
         except Exception as exc:
             logger.error("SSE stream error: %s", exc, exc_info=True)
@@ -694,6 +724,16 @@ async def resume_mission_stream(
     db_user = repository.get_user(user.id)
     user_plan = db_user.plan if db_user else "free"
 
+    # Save qualification answers when answering qualification
+    if payload.action == "answer_qualification" and payload.answer_text:
+        try:
+            answers = json.loads(payload.answer_text) if payload.answer_text.startswith("{") else {}
+        except Exception:
+            answers = {}
+        if answers:
+            repository.save_qualification_answers(mission_id, answers)
+        repository.update_mission_phase(mission_id, "wave_running")
+
     async def event_generator():
         collected_docs: dict[str, dict] = {}
         try:
@@ -708,13 +748,7 @@ async def resume_mission_stream(
                     action=payload.action,
                 )
             ):
-                if event["event"] == "document_updated":
-                    d = event["data"]
-                    collected_docs[d.get("doc_id", "")] = d
-                elif event["event"] == "wave_completed":
-                    _persist_dossier_from_docs(session, mission_id, collected_docs)
-                elif event["event"] == "mission_completed":
-                    _persist_dossier_from_docs(session, mission_id, collected_docs, is_final=True)
+                _save_sse_state(session, mission_id, event, collected_docs, repository)
                 yield f"event: {event['event']}\ndata: {json.dumps(event['data'], ensure_ascii=False)}\n\n"
         except Exception as exc:
             logger.error("SSE resume stream error: %s", exc, exc_info=True)
@@ -742,6 +776,41 @@ async def get_mission(
     if not mission:
         raise AppError.not_found("mission_not_found", "Mission not found.")
     return mission
+
+
+@app.get("/api/missions/{mission_id}/state")
+async def get_mission_state(
+    mission_id: str,
+    user: AuthenticatedUser = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    """Return full resumable state for a mission."""
+    repository = ControlPlaneRepository(session)
+    state = repository.get_mission_state(user.id, mission_id)
+    if not state:
+        raise AppError.not_found("mission_not_found", "Mission not found.")
+    return state
+
+
+@app.post("/api/missions/{mission_id}/validate-docs")
+async def validate_docs(
+    mission_id: str,
+    payload: ValidateDocsRequest,
+    user: AuthenticatedUser = Depends(require_user),
+    session: Session = Depends(get_session),
+):
+    """Persist doc validation/correction status during doc_review phase."""
+    repository = ControlPlaneRepository(session)
+    mission = repository.get_mission_for_user(user.id, mission_id)
+    if not mission:
+        raise AppError.not_found("mission_not_found", "Mission not found.")
+    repository.update_dossier_doc_status(
+        mission_id,
+        validated_ids=payload.validated_doc_ids,
+        corrections=payload.corrections,
+    )
+    repository.update_mission_phase(mission_id, "doc_review")
+    return {"ok": True}
 
 
 @app.post("/api/missions/{mission_id}/answers", response_model=AnswerQuestionResponse)

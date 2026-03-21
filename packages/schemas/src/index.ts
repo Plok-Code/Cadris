@@ -150,6 +150,11 @@ export interface DossierSection {
   title: string;
   content: string;
   certainty: CertaintyStatus;
+  agent?: string;
+  version?: number;
+  wave?: number;
+  validated?: boolean;
+  correction?: string;
 }
 
 export interface DossierReadModel {
@@ -363,4 +368,22 @@ export interface WaveCompletedEvent {
   overall_quality: string;
   questions_for_user: string[];
   documents_so_far: number;
+}
+
+// ── Mission persistence types ────────────────────────────
+
+export interface MissionStateResponse {
+  id: string;
+  phase: string;
+  currentWave: number;
+  intakeText: string;
+  qualificationAnswers: Record<string, string>;
+  documents: DossierSection[];
+  dossierReady: boolean;
+  questionHistory: MissionQuestion[];
+}
+
+export interface ValidateDocsRequest {
+  validatedDocIds: string[];
+  corrections: Record<string, string>;
 }

@@ -163,6 +163,11 @@ class DossierSection(ApiModel):
     title: str
     content: str
     certainty: CertaintyStatus
+    agent: str = ""
+    version: int = 1
+    wave: int = 0
+    validated: bool = False
+    correction: str = ""
 
 
 class DossierReadModel(ApiModel):
@@ -308,3 +313,19 @@ class RendererRequest(ApiModel):
 
 class RendererResponse(ApiModel):
     markdown: str
+
+
+class MissionStateResponse(ApiModel):
+    id: str
+    phase: str
+    current_wave: int
+    intake_text: str
+    qualification_answers: dict[str, str] = Field(default_factory=dict)
+    documents: list[DossierSection] = Field(default_factory=list)
+    dossier_ready: bool = False
+    question_history: list[MissionQuestion] = Field(default_factory=list)
+
+
+class ValidateDocsRequest(ApiModel):
+    validated_doc_ids: list[str] = Field(default_factory=list)
+    corrections: dict[str, str] = Field(default_factory=dict)

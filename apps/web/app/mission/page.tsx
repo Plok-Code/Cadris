@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, Suspense } from "react";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type {
@@ -125,9 +125,12 @@ function MissionHeader({ isActive, onQuit }: { isActive: boolean; onQuit: () => 
 
 // ── Component ─────────────────────────────────────────────
 
-export default function MissionPage() {
+function MissionPageContent() {
   const { data: session, status: authStatus } = useSession();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const resumeId = searchParams.get("resume");
+  const [isResuming, setIsResuming] = useState(false);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -228,9 +231,12 @@ export default function MissionPage() {
     const { event: type, data } = event;
 
     switch (type) {
-      case "mission_created":
-        setMissionId(data.mission_id as string);
+      case "mission_created": {
+        const mid = data.mission_id as string;
+        setMissionId(mid);
+        router.replace(`/mission?resume=${mid}`, { scroll: false });
         break;
+      }
 
       case "qualification_questions": {
         const e = data as unknown as QualificationQuestionsEvent;
@@ -338,6 +344,69 @@ export default function MissionPage() {
         break;
     }
   }, []);
+
+  // ── Resume from saved state ────────────────────────────
+  useEffect(() => {
+    if (!resumeId || authStatus !== "authenticated") return;
+    setIsResuming(true);
+    cadrisApi.getMissionState(resumeId)
+      .then((state) => {
+        setMissionId(state.id);
+        setIntakeText(state.intakeText || "");
+
+        // Map phase
+        const mappedPhase = state.phase === "completed" ? "dossier" : (state.phase as Phase);
+        setPhase(mappedPhase);
+        setCurrentWave(state.currentWave || 0);
+        currentWaveRef.current = state.currentWave || 0;
+
+        // Restore documents
+        if (state.documents && state.documents.length > 0) {
+          const docs: DocumentState[] = state.documents.map((d) => ({
+            docId: d.id,
+            title: d.title,
+            agent: d.agent || "",
+            certainty: d.certainty || "unknown",
+            version: d.version || 1,
+            preview: (d.content || "").slice(0, 200),
+            content: d.content || "",
+            validated: d.validated || false,
+            correction: d.correction || "",
+            wave: d.wave || 0,
+            locked: (d.wave || 0) < (state.currentWave || 0),
+          }));
+          setDocuments(docs);
+        }
+
+        // Restore qualification Q&A as chat messages
+        if (state.questionHistory && state.questionHistory.length > 0) {
+          const msgs: ChatMessage[] = [];
+          for (const q of state.questionHistory) {
+            msgs.push({ role: "assistant", text: q.body || q.title, context: "" });
+            if (q.status === "answered" && q.answerText) {
+              msgs.push({ role: "user", text: q.answerText });
+            }
+          }
+          setChatMessages(msgs);
+        }
+
+        // If phase is wave_running (interrupted), show resume screen
+        // The user will see the documents generated so far + a resume button
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Impossible de reprendre la mission");
+      })
+      .finally(() => setIsResuming(false));
+  }, [resumeId, authStatus]);
+
+  // ── Warn before leaving during streaming ───────────────
+  useEffect(() => {
+    if (phase === "wave_running" || phase === "qualifying") {
+      const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+      window.addEventListener("beforeunload", handler);
+      return () => window.removeEventListener("beforeunload", handler);
+    }
+  }, [phase]);
 
   // ── Actions ─────────────────────────────────────────────
 
@@ -467,6 +536,11 @@ export default function MissionPage() {
     );
     setDocuments(updated);
     advanceToNextPendingOrFinish(updated);
+
+    // Fire-and-forget: persist validation
+    if (missionId) {
+      cadrisApi.validateDocs(missionId, { validatedDocIds: [targetDocId], corrections: {} }).catch(() => {});
+    }
   };
 
   const handleCorrectDoc = () => {
@@ -480,6 +554,11 @@ export default function MissionPage() {
     );
     setDocuments(updated);
     setCorrectionText("");
+
+    // Fire-and-forget: persist correction
+    if (missionId) {
+      cadrisApi.validateDocs(missionId, { validatedDocIds: [targetDocId], corrections: { [targetDocId]: correctionText } }).catch(() => {});
+    }
     setIsCorrectingDoc(false);
 
     // After correction: go to next doc in block, or show confirm if last
@@ -601,6 +680,54 @@ export default function MissionPage() {
         <div className="mission__loading-screen">
           <div className="mission__spinner" />
           <p>Chargement...</p>
+        </div>
+      </main>
+    );
+  }
+
+  // Show loading while resuming mission state
+  if (isResuming) {
+    return (
+      <main className="mission">
+        <MissionHeader isActive={false} onQuit={handleQuitMission} />
+        <div className="mission__loading-screen">
+          <div className="mission__spinner" />
+          <p>Reprise de votre mission...</p>
+        </div>
+      </main>
+    );
+  }
+
+  // Interrupted wave_running: show resume screen
+  if (resumeId && phase === "wave_running" && Object.keys(agents).length === 0) {
+    const resumeWave = async () => {
+      setError(null);
+      try {
+        await cadrisApi.resumeMissionStream(resumeId, "", "next_wave", handleEvent);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Erreur lors de la reprise");
+      }
+    };
+    return (
+      <main className="mission">
+        <MissionHeader isActive={false} onQuit={handleQuitMission} />
+        <div className="mission__intake">
+          <h1 className="mission__intake-title">Mission interrompue</h1>
+          <p className="mission__intake-hint">
+            Votre mission a ete interrompue pendant la vague {currentWave}.
+            {documents.length > 0 && ` ${documents.length} documents ont ete sauvegardes.`}
+          </p>
+          {error && <p className="mission__error">{error}</p>}
+          <button className="mission__intake-submit" onClick={resumeWave}>
+            Reprendre la mission
+          </button>
+          <button
+            className="mission__intake-submit"
+            style={{ background: "transparent", color: "var(--ds-text-secondary)", border: "1px solid var(--ds-bg-surface)", marginTop: 8 }}
+            onClick={() => router.push("/projects")}
+          >
+            Retour aux projets
+          </button>
         </div>
       </main>
     );
@@ -1189,5 +1316,20 @@ export default function MissionPage() {
         Nouveau projet
       </button>
     </main>
+  );
+}
+
+export default function MissionPage() {
+  return (
+    <Suspense fallback={
+      <main className="mission">
+        <div className="mission__loading-screen">
+          <div className="mission__spinner" />
+          <p>Chargement...</p>
+        </div>
+      </main>
+    }>
+      <MissionPageContent />
+    </Suspense>
   );
 }
