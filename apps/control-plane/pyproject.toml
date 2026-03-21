@@ -27,6 +27,11 @@ include = ["app*"]
 [tool.uvicorn]
 factory = false
 
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore::pydantic._internal._generate_schema.UnsupportedFieldAttributeWarning",
+]
+
 [project.optional-dependencies]
 test = [
   "pytest>=8.0.0",
