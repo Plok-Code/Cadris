@@ -3,16 +3,17 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
+# 1. Install dependencies only (cached unless pyproject.toml changes)
 COPY apps/runtime/pyproject.toml .
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir $(python -c "
+import tomllib, pathlib
+d = tomllib.loads(pathlib.Path('pyproject.toml').read_text())
+print(' '.join(d['project']['dependencies']))
+")
 
+# 2. Copy application code (invalidates cache on code changes only)
 COPY apps/runtime/cadris_runtime/ cadris_runtime/
-
-# prompt_loader.py resolves prompts via:
-#   Path(__file__).resolve().parents[3] / "packages" / "prompts"
-# With __file__ = /app/cadris_runtime/prompt_loader.py, parents[3] = /
-# So prompts must live at /packages/prompts/
-COPY packages/prompts/ /packages/prompts/
+COPY packages/prompts/ packages/prompts/
 
 EXPOSE 8001
 

@@ -3,21 +3,24 @@
 # Caddy auto-provisions HTTPS via Let's Encrypt
 
 {$CADRIS_DOMAIN:app.cadris.fr} {
-	# Frontend (Next.js)
-	reverse_proxy web:3000
-
-	# API proxy — control-plane endpoints
-	handle /api/auth/* {
-		reverse_proxy control-plane:8000
-	}
-
+	# Control-plane API — billing and shared links only
+	# /api/auth/* is NextAuth (web), NOT control-plane
 	handle /api/billing/* {
 		reverse_proxy control-plane:8000
 	}
 
-	# Health check
+	handle /api/shared/* {
+		reverse_proxy control-plane:8000
+	}
+
+	# Health check (control-plane)
 	handle /health {
 		reverse_proxy control-plane:8000
+	}
+
+	# Everything else (including /api/auth/*, /api/cadris/*) → Next.js
+	handle {
+		reverse_proxy web:3000
 	}
 
 	# Security headers

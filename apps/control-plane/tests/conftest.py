@@ -5,8 +5,13 @@ The StaticPool ensures all connections share the same in-memory database.
 """
 from __future__ import annotations
 
+import os
 import pytest
 from pathlib import Path
+from uuid import uuid4
+os.environ.setdefault("CADRIS_LOAD_DOTENV", "0")
+os.environ.setdefault("CONTROL_PLANE_TRUSTED_PROXY_SECRET", "")
+
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
@@ -59,4 +64,4 @@ def client():
 
 @pytest.fixture()
 def auth_headers():
-    return {"x-cadris-user-id": "test-user"}
+    return {"x-cadris-user-id": f"test-{uuid4().hex[:12]}"}

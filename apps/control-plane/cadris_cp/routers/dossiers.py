@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 import zipfile
 from uuid import uuid4
 
@@ -23,6 +24,21 @@ from ..repository import ControlPlaneRepository
 from ..services.render_service import md_to_pdf_bytes
 
 logger = logging.getLogger(__name__)
+
+# Validate section IDs to prevent path traversal in ZIP filenames.
+_VALID_SECTION_ID = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+
+
+def _safe_zip_path(section_id: str, ext: str = ".md") -> str | None:
+    """Return a safe ZIP path for a section, or None if the ID is invalid."""
+    mapped = DOC_ID_TO_ZIP_PATH.get(section_id)
+    if mapped:
+        return mapped if ext == ".md" else mapped.replace(".md", ext)
+    if not _VALID_SECTION_ID.match(section_id):
+        logger.warning("Skipping section with invalid id: %s", section_id)
+        return None
+    return f"{section_id}{ext}"
+
 
 router = APIRouter(prefix="/api/missions", tags=["dossiers"])
 
@@ -82,11 +98,9 @@ async def get_dossier_pdf(
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for section in dossier.sections:
-            zip_path = DOC_ID_TO_ZIP_PATH.get(section.id)
-            if zip_path:
-                pdf_path = zip_path.replace(".md", ".pdf")
-            else:
-                pdf_path = f"{section.id}.pdf"
+            pdf_path = _safe_zip_path(section.id, ".pdf")
+            if pdf_path is None:
+                continue
             try:
                 pdf_bytes = md_to_pdf_bytes(section.title, section.content)
                 zf.writestr(pdf_path, pdf_bytes)
@@ -180,16 +194,12 @@ async def get_dossier_markdown(
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for section in dossier.sections:
-            zip_path = DOC_ID_TO_ZIP_PATH.get(section.id)
+            md_path = _safe_zip_path(section.id, ".md")
+            if md_path is None:
+                continue
             raw = section.content.strip()
-            if raw.startswith("#"):
-                content = raw
-            else:
-                content = f"# {section.title}\n\n{raw}"
-            if zip_path:
-                zf.writestr(zip_path, content)
-            else:
-                zf.writestr(f"{section.id}.md", content)
+            content = raw if raw.startswith("#") else f"# {section.title}\n\n{raw}"
+            zf.writestr(md_path, content)
     buffer.seek(0)
 
     repository.create_export(
@@ -219,11 +229,12 @@ async def get_dossier_zip(
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for section in dossier.sections:
-            zip_path = DOC_ID_TO_ZIP_PATH.get(section.id)
-            if zip_path:
-                raw = section.content.strip()
-                content = raw if raw.startswith("#") else f"# {section.title}\n\n{raw}"
-                zf.writestr(zip_path, content)
+            md_path = _safe_zip_path(section.id, ".md")
+            if md_path is None:
+                continue
+            raw = section.content.strip()
+            content = raw if raw.startswith("#") else f"# {section.title}\n\n{raw}"
+            zf.writestr(md_path, content)
 
     buffer.seek(0)
 

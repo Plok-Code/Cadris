@@ -1,7 +1,19 @@
+import { createHash } from "node:crypto";
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import GitHub from "next-auth/providers/github";
 import Credentials from "next-auth/providers/credentials";
+
+/**
+ * Derive a deterministic, collision-resistant user ID from an email.
+ * Uses a short prefix (slug) + SHA-256 suffix to stay human-readable
+ * while avoiding collisions (e.g. x+y@ vs x-y@).
+ */
+function emailToUserId(email: string): string {
+  const prefix = email.split("@")[0].replace(/[^a-zA-Z0-9]/g, "").slice(0, 16);
+  const hash = createHash("sha256").update(email.toLowerCase()).digest("hex").slice(0, 12);
+  return `${prefix}-${hash}`;
+}
 
 /**
  * NextAuth v5 configuration for Cadris.
@@ -62,7 +74,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             async authorize(credentials) {
               const email = credentials?.email as string;
               if (!email) return null;
-              const id = email.replace(/[^a-zA-Z0-9]/g, "-").slice(0, 64);
+              const id = emailToUserId(email);
               return { id, email, name: email.split("@")[0] };
             },
           }),
@@ -96,7 +108,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     jwt({ token, user, account }) {
       // On first sign-in, persist the user id and provider
       if (user) {
-        token.userId = user.id ?? user.email?.replace(/[^a-zA-Z0-9]/g, "-").slice(0, 64);
+        token.userId = user.id ?? (user.email ? emailToUserId(user.email) : undefined);
         token.provider = account?.provider ?? "unknown";
       }
       return token;

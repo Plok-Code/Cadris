@@ -138,6 +138,11 @@ def _make_resume_response(*, completed=False) -> RuntimeResumeResponse:
     return resp
 
 
+async def _stream_events(*events):
+    for event in events:
+        yield event
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -147,6 +152,8 @@ def mock_runtime():
     mock = MagicMock()
     mock.start_mission = AsyncMock()
     mock.resume_mission = AsyncMock()
+    mock.start_mission_stream = MagicMock()
+    mock.resume_mission_stream = MagicMock()
     mock.cleanup_mission = AsyncMock()
     with patch("cadris_cp.routers.projects.runtime_client", mock), \
          patch("cadris_cp.routers.missions.runtime_client", mock):
@@ -241,6 +248,63 @@ class TestCreateMission:
             headers=auth_headers,
         )
         assert resp.status_code == 422
+
+    def test_create_mission_increments_free_plan_counter(self, client, auth_headers, mock_runtime):
+        mock_runtime.start_mission.return_value = _make_start_response(status="waiting_user")
+        project = _create_project(client, auth_headers)
+
+        resp = client.post(
+            f"/api/projects/{project['id']}/missions",
+            json={"intakeText": INTAKE_TEXT, "flowCode": "demarrage"},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 201
+
+        plans = client.get("/api/billing/plans", headers=auth_headers)
+        assert plans.status_code == 200
+        assert plans.json()["missions_this_month"] == 1
+
+
+class TestMissionStreaming:
+    def test_run_stream_increments_free_plan_counter_only_after_start(self, client, auth_headers, mock_runtime):
+        mock_runtime.start_mission_stream.return_value = _stream_events(
+            {"event": "qualification_questions", "data": {"questions": []}},
+            {"event": "mission_completed", "data": {"ok": True}},
+        )
+
+        resp = client.post(
+            "/api/missions/run",
+            json={"intakeText": INTAKE_TEXT, "flowCode": "demarrage"},
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 200
+        assert "event: mission_created" in resp.text
+
+        plans = client.get("/api/billing/plans", headers=auth_headers)
+        assert plans.status_code == 200
+        assert plans.json()["missions_this_month"] == 1
+
+    def test_run_stream_does_not_create_mission_or_burn_quota_on_start_failure(self, client, auth_headers, mock_runtime):
+        mock_runtime.start_mission_stream.return_value = _stream_events(
+            {"event": "error", "data": {"error": "runtime boom"}},
+        )
+
+        resp = client.post(
+            "/api/missions/run",
+            json={"intakeText": INTAKE_TEXT, "flowCode": "demarrage"},
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 502
+
+        projects = client.get("/api/projects", headers=auth_headers)
+        assert projects.status_code == 200
+        assert projects.json() == []
+
+        plans = client.get("/api/billing/plans", headers=auth_headers)
+        assert plans.status_code == 200
+        assert plans.json()["missions_this_month"] == 0
 
 
 class TestAnswerQuestion:

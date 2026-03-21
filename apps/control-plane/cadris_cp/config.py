@@ -4,10 +4,15 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
-from .database import DATABASE_URL
 
-# Load .env from the control-plane root directory
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+# Load local .env BEFORE any other module import, so that database.py
+# (and others) can read env vars set in .env.
+# Tests opt out with CADRIS_LOAD_DOTENV=0 for hermetic runs.
+if os.getenv("CADRIS_LOAD_DOTENV", "1") != "0":
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
+
+# Import AFTER load_dotenv so DATABASE_URL picks up .env values.
+from .database import DATABASE_URL  # noqa: E402
 
 
 class Settings(BaseModel):
@@ -37,7 +42,9 @@ class Settings(BaseModel):
     stripe_webhook_secret: str | None = Field(default=os.getenv("STRIPE_WEBHOOK_SECRET", None))
     stripe_price_starter: str | None = Field(default=os.getenv("STRIPE_PRICE_STARTER", None))
     stripe_price_pro: str | None = Field(default=os.getenv("STRIPE_PRICE_PRO", None))
-    stripe_price_expert: str | None = Field(default=os.getenv("STRIPE_PRICE_EXPERT", None))
+    stripe_price_expert: str | None = Field(
+        default=os.getenv("STRIPE_PRICE_EXPERT") or os.getenv("STRIPE_PRICE_TEAM")
+    )
     frontend_url: str = Field(default=os.getenv("FRONTEND_URL", "http://localhost:3000"))
 
     # Resend (for password reset emails)

@@ -11,6 +11,17 @@ from datetime import UTC, datetime, timedelta
 from html import escape
 from uuid import uuid4
 
+def _email_to_user_id(email: str) -> str:
+    """Derive a deterministic, collision-resistant user ID from an email.
+
+    Uses a short prefix (alphanumeric part of local) + SHA-256 suffix
+    so IDs stay human-readable but never collide
+    (e.g. x+y@example.com != x-y@example.com).
+    """
+    prefix = re.sub(r"[^a-zA-Z0-9]", "", email.split("@")[0])[:16]
+    h = hashlib.sha256(email.lower().encode()).hexdigest()[:12]
+    return f"{prefix}-{h}"
+
 import bcrypt
 import httpx
 from fastapi import APIRouter, Depends, Request, status
@@ -65,7 +76,7 @@ async def auth_register(
     if repo.get_user_by_email(email):
         raise AppError.conflict("email_taken", "Un compte existe deja avec cet email.")
 
-    user_id = re.sub(r"[^a-zA-Z0-9]", "-", email)[:64]
+    user_id = _email_to_user_id(email)
     password_hash = bcrypt.hashpw(payload.password.encode(), bcrypt.gensalt()).decode()
     user = repo.register_user(
         user_id=user_id, email=email, name=payload.name.strip(), password_hash=password_hash
