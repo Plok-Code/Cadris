@@ -365,6 +365,7 @@ async def _run_single_agent(
                 "doc_id": doc.doc_id,
                 "title": doc.title,
                 "agent": spec.code,
+                "wave": wave_num,
                 "certainty": doc.certainty,
                 "version": doc.version,
                 "content": doc.content or "",

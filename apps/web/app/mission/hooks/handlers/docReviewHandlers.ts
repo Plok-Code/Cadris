@@ -53,7 +53,7 @@ export function advanceToNextPendingOrFinish(deps: DocReviewHandlerDeps, updated
 
 export function createHandleValidateDoc(deps: DocReviewHandlerDeps) {
   return () => {
-    const { documents, currentWave, reviewIndex, setDocuments, missionId, cadrisApi } = deps;
+    const { documents, currentWave, reviewIndex, setDocuments, setError, missionId, cadrisApi } = deps;
     const waveDocs = documents.filter((d) => d.wave === currentWave && !d.locked);
     const targetDocId = waveDocs[reviewIndex]?.docId;
     if (!targetDocId) return;
@@ -65,7 +65,12 @@ export function createHandleValidateDoc(deps: DocReviewHandlerDeps) {
     advanceToNextPendingOrFinish(deps, updated);
 
     if (missionId) {
-      cadrisApi.validateDocs(missionId, { validatedDocIds: [targetDocId], corrections: {} }).catch(() => {});
+      cadrisApi.validateDocs(missionId, { validatedDocIds: [targetDocId], corrections: {} }).catch(() => {
+        setDocuments((prev) =>
+          prev.map((d) => (d.docId === targetDocId ? { ...d, validated: false } : d))
+        );
+        setError("La validation n'a pas pu être sauvegardée. Veuillez réessayer.");
+      });
     }
   };
 }
@@ -74,24 +79,30 @@ export function createHandleCorrectDoc(deps: DocReviewHandlerDeps) {
   return () => {
     const {
       documents, currentWave, reviewIndex, correctionText,
-      setDocuments, setCorrectionText, setIsCorrectingDoc,
+      setDocuments, setCorrectionText, setIsCorrectingDoc, setError,
       setReviewIndex, setShowBlockConfirm, docContentRef,
       missionId, cadrisApi,
     } = deps;
 
     if (!correctionText.trim()) return;
+    const savedCorrectionText = correctionText;
     const waveDocs = documents.filter((d) => d.wave === currentWave && !d.locked);
     const targetDocId = waveDocs[reviewIndex]?.docId;
     if (!targetDocId) return;
 
     const updated = documents.map((d) =>
-      d.docId === targetDocId ? { ...d, correction: correctionText, validated: true } : d
+      d.docId === targetDocId ? { ...d, correction: savedCorrectionText, validated: true } : d
     );
     setDocuments(updated);
     setCorrectionText("");
 
     if (missionId) {
-      cadrisApi.validateDocs(missionId, { validatedDocIds: [targetDocId], corrections: { [targetDocId]: correctionText } }).catch(() => {});
+      cadrisApi.validateDocs(missionId, { validatedDocIds: [targetDocId], corrections: { [targetDocId]: savedCorrectionText } }).catch(() => {
+        setDocuments((prev) =>
+          prev.map((d) => (d.docId === targetDocId ? { ...d, validated: false, correction: "" } : d))
+        );
+        setError("La validation n'a pas pu être sauvegardée. Veuillez réessayer.");
+      });
     }
     setIsCorrectingDoc(false);
 

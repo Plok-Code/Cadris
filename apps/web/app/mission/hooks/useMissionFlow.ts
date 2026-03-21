@@ -128,7 +128,7 @@ export function useMissionFlow() {
           for (let i = 0; i < state.qualificationQuestions.length; i++) {
             const q = state.qualificationQuestions[i];
             msgs.push({ role: "assistant", text: q.question, context: q.context || "" });
-            if (answers[`q${i}`]) msgs.push({ role: "user", text: answers[`q${i}`] });
+            if (answers[q.question]) msgs.push({ role: "user", text: answers[q.question] });
           }
           setChatMessages(msgs);
         }

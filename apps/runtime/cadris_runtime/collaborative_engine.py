@@ -308,9 +308,14 @@ async def _run_qualification(
             "agent": "qualifier",
             "error": str(exc),
         })
-        # Emit empty questions so the client can still proceed
+        # Emit a fallback question so the user can still proceed
+        fallback_q = {
+            "question": "Décrivez votre projet en quelques phrases",
+            "context": "La qualification automatique a échoué. Veuillez décrire votre projet pour que nous puissions continuer.",
+        }
+        memory.qualification_questions = [fallback_q]
         await event_emitter.emit(EventType.QUALIFICATION_QUESTIONS, {
-            "questions": [],
+            "questions": [fallback_q],
         })
 
 
