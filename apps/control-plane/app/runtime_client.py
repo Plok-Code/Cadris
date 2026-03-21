@@ -145,3 +145,15 @@ class RuntimeClient:
                 ) from exc
             except httpx.RequestError as exc:
                 raise AppError.integration("runtime_unreachable", "Le runtime est indisponible.") from exc
+
+    async def cleanup_mission(self, mission_id: str) -> None:
+        """Ask runtime to remove mission memory and snapshots."""
+        headers = await self._headers()
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.delete(
+                    f"{settings.runtime_url}/internal/runtime/missions/{mission_id}",
+                    headers=headers,
+                )
+        except Exception:
+            logger.warning("Failed to cleanup runtime mission %s", mission_id, exc_info=True)

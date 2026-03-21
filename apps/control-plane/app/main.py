@@ -382,10 +382,13 @@ async def delete_mission(
     if not mission:
         raise AppError.not_found("mission_not_found", "Mission not found.")
 
-    # Cleanup external resources (vector store)
+    # Cleanup external resources (vector store + uploads)
     vs_id = repository.get_vector_store_id_for_mission(mission_id)
     if vs_id and file_search_client:
         file_search_client.delete_vector_store(vs_id)
+    if upload_storage:
+        upload_storage.delete_mission_files(mission_id)
+    await runtime_client.cleanup_mission(mission_id)
 
     repository.delete_mission(mission_id)
     return Response(status_code=204)

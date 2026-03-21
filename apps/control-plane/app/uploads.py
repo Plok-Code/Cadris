@@ -72,6 +72,13 @@ class LocalUploadStorage:
             return None
         return path.read_bytes()
 
+    def delete_mission_files(self, mission_id: str) -> None:
+        """Delete all uploaded files for a mission."""
+        mission_dir = self.root_dir / mission_id
+        if mission_dir.exists():
+            import shutil
+            shutil.rmtree(mission_dir, ignore_errors=True)
+
 
 class S3UploadStorage:
     def __init__(self, bucket_name: str, endpoint_url: str | None = None) -> None:
@@ -142,6 +149,20 @@ class S3UploadStorage:
             Params={"Bucket": self.bucket, "Key": s3_key},
             ExpiresIn=expires_in,
         )
+
+    def delete_mission_files(self, mission_id: str) -> None:
+        """Delete all uploaded files for a mission from S3."""
+        prefix = f"missions/{mission_id}/"
+        try:
+            response = self.s3.list_objects_v2(Bucket=self.bucket, Prefix=prefix)
+            objects = response.get("Contents", [])
+            if objects:
+                self.s3.delete_objects(
+                    Bucket=self.bucket,
+                    Delete={"Objects": [{"Key": o["Key"]} for o in objects]},
+                )
+        except Exception:
+            pass  # Best-effort cleanup
 
     @staticmethod
     def _extract_key(storage_path: str) -> str | None:

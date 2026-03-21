@@ -84,6 +84,17 @@ async def get_mission_documents(mission_id: str):
     return {"mission_id": mission_id, "total_documents": len(docs), "documents": docs}
 
 
+# ── Mission cleanup ──────────────────────────────────────
+
+
+@app.delete("/internal/runtime/missions/{mission_id}")
+async def cleanup_mission(mission_id: str):
+    """Remove mission memory and snapshots from runtime."""
+    from . import mission_store
+    mission_store.remove(mission_id)
+    return {"ok": True}
+
+
 # ── Training data collection ─────────────────────────────
 
 

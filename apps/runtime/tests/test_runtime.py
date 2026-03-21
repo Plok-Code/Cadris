@@ -199,3 +199,46 @@ def test_start_intake_too_short(client):
         json=_start_payload(intake_text="trop court"),
     )
     assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# POST /internal/runtime/start-stream (SSE fallback in local mode)
+# ---------------------------------------------------------------------------
+
+
+def test_start_stream_returns_sse(client):
+    """In local mode, start-stream should return text/event-stream with proper events."""
+    resp = client.post("/internal/runtime/start-stream", json=_start_payload())
+    assert resp.status_code == 200
+    assert "text/event-stream" in resp.headers.get("content-type", "")
+
+    body = resp.text
+    assert "event: mission_completed" in body
+    # Should contain real data, not just {"ok": true}
+    assert "artifact_blocks" in body or "summary" in body
+
+
+def test_resume_stream_returns_sse(client):
+    """In local mode, resume-stream should return text/event-stream."""
+    resp = client.post("/internal/runtime/resume-stream", json=_resume_payload())
+    assert resp.status_code == 200
+    assert "text/event-stream" in resp.headers.get("content-type", "")
+    assert "event: mission_completed" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# DELETE /internal/runtime/missions/{mission_id} (cleanup)
+# ---------------------------------------------------------------------------
+
+
+def test_cleanup_mission(client):
+    resp = client.delete(f"/internal/runtime/missions/{DEFAULT_MISSION_ID}")
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+
+
+def test_cleanup_nonexistent_mission(client):
+    """Cleanup should succeed even for unknown missions."""
+    resp = client.delete("/internal/runtime/missions/nonexistent_123")
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
