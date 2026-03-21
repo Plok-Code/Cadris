@@ -60,7 +60,8 @@ type Phase =
   | "qualification"
   | "wave_running"
   | "doc_review"
-  | "dossier";
+  | "dossier"
+  | "quota_reached";
 
 interface QualificationQuestion {
   question: string;
@@ -424,7 +425,13 @@ function MissionPageContent() {
     try {
       await cadrisApi.streamMission(intakeText, handleEvent);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur inconnue");
+      const msg = err instanceof Error ? err.message : "Erreur inconnue";
+      if (msg.includes("limite") || msg.includes("limit") || msg.includes("quota")) {
+        setPhase("quota_reached");
+      } else {
+        setError(msg);
+        setPhase("intake");
+      }
     }
   };
 
@@ -728,6 +735,37 @@ function MissionPageContent() {
           >
             Retour aux projets
           </button>
+        </div>
+      </main>
+    );
+  }
+
+  if (phase === "quota_reached") {
+    return (
+      <main className="mission">
+        <MissionHeader isActive={false} onQuit={handleQuitMission} />
+        <div className="mission__quota">
+          <div className="mission__quota-icon">&#128274;</div>
+          <h1 className="mission__quota-title">Vous avez atteint votre limite de missions</h1>
+          <p className="mission__quota-text">
+            Votre plan actuel ne permet plus de missions ce mois-ci.
+            Passez au plan superieur pour continuer a cadrer vos projets.
+          </p>
+          <div className="mission__quota-actions">
+            <button
+              className="mission__intake-submit"
+              onClick={() => router.push("/billing")}
+            >
+              Passer au plan superieur
+            </button>
+            <button
+              className="mission__intake-submit"
+              style={{ background: "transparent", color: "var(--ds-text-secondary)", border: "1px solid var(--ds-bg-surface)" }}
+              onClick={() => router.push("/projects")}
+            >
+              Retour a mes projets
+            </button>
+          </div>
         </div>
       </main>
     );
