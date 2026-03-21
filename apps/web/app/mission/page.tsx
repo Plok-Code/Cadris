@@ -379,6 +379,19 @@ function MissionPageContent() {
           setDocuments(docs);
         }
 
+        // Restore qualification questions for the input field to appear
+        if (state.qualificationQuestions && state.qualificationQuestions.length > 0) {
+          const qs = state.qualificationQuestions.map((q: { question: string; context?: string }) => ({
+            question: q.question,
+            context: q.context || "",
+          }));
+          setQualQuestions(qs);
+
+          // Figure out how many have been answered
+          const answeredCount = Object.keys(state.qualificationAnswers || {}).length;
+          setQualIndex(Math.min(answeredCount, qs.length));
+        }
+
         // Restore qualification Q&A as chat messages
         if (state.questionHistory && state.questionHistory.length > 0) {
           const msgs: ChatMessage[] = [];
@@ -386,6 +399,19 @@ function MissionPageContent() {
             msgs.push({ role: "assistant", text: q.body || q.title, context: "" });
             if (q.status === "answered" && q.answerText) {
               msgs.push({ role: "user", text: q.answerText });
+            }
+          }
+          setChatMessages(msgs);
+        } else if (state.qualificationQuestions && state.qualificationQuestions.length > 0) {
+          // No question history but we have qual questions — rebuild chat from answers
+          const msgs: ChatMessage[] = [];
+          const answers = state.qualificationAnswers || {};
+          for (let i = 0; i < state.qualificationQuestions.length; i++) {
+            const q = state.qualificationQuestions[i];
+            msgs.push({ role: "assistant", text: q.question, context: q.context || "" });
+            const answerKey = `q${i}`;
+            if (answers[answerKey]) {
+              msgs.push({ role: "user", text: answers[answerKey] });
             }
           }
           setChatMessages(msgs);
@@ -423,7 +449,7 @@ function MissionPageContent() {
     setQualIndex(0);
 
     try {
-      await cadrisApi.streamMission(intakeText, handleEvent);
+      await cadrisApi.streamMission(intakeText, handleEvent, "demarrage", selectedTemplate !== "standard" ? selectedTemplate : undefined);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Erreur inconnue";
       if (msg.includes("limite") || msg.includes("limit") || msg.includes("quota")) {

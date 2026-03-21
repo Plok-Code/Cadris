@@ -81,14 +81,21 @@ class FileSearchClient:
         vector_store_id: str,
         query: str,
         max_results: int = 5,
+        file_id_to_input_id: dict[str, str] | None = None,
     ) -> list[SearchResult]:
-        """Search the vector store and return ranked excerpts."""
+        """Search the vector store and return ranked excerpts.
+
+        Args:
+            file_id_to_input_id: Mapping from OpenAI file_id to mission_inputs.id.
+                When provided, search results use the correct input_id for citations.
+        """
         results = self._client.vector_stores.search(
             vector_store_id=vector_store_id,
             query=query,
             max_num_results=max_results,
         )
 
+        id_map = file_id_to_input_id or {}
         search_results: list[SearchResult] = []
         for item in results.data:
             filename = item.filename or "unknown"
@@ -98,9 +105,10 @@ class FileSearchClient:
                     excerpts.append(content_block.text)
 
             excerpt = " ".join(excerpts)[:500] if excerpts else ""
+            resolved_id = id_map.get(item.file_id, item.file_id)
             search_results.append(
                 SearchResult(
-                    input_id=item.file_id,
+                    input_id=resolved_id,
                     filename=filename,
                     excerpt=excerpt,
                     score=item.score,

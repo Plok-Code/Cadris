@@ -167,7 +167,8 @@ export class CadrisApiClient {
   async streamMission(
     intakeText: string,
     onEvent: (event: RuntimeEvent) => void,
-    flowCode: string = "demarrage"
+    flowCode: string = "demarrage",
+    templateId?: string,
   ): Promise<void> {
     const headers = new Headers({
       "content-type": "application/json",
@@ -176,10 +177,13 @@ export class CadrisApiClient {
       headers.set("x-cadris-user-id", this.options.userId);
     }
 
+    const body: Record<string, string> = { intakeText, flowCode };
+    if (templateId) body.templateId = templateId;
+
     const response = await fetch(`${this.options.baseUrl}/api/missions/run`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ intakeText, flowCode }),
+      body: JSON.stringify(body),
       cache: "no-store",
     });
 

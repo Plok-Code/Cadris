@@ -257,6 +257,13 @@ class ControlPlaneRepository:
         record.vector_store_id = vector_store_id
         self.session.commit()
 
+    def list_mission_inputs(self, mission_id: str) -> list[MissionInputRecord]:
+        return list(
+            self.session.scalars(
+                select(MissionInputRecord).where(MissionInputRecord.mission_id == mission_id)
+            ).all()
+        )
+
     def get_mission_input_for_user(self, user_id: str, mission_id: str, input_id: str) -> MissionInputRecord | None:
         statement = (
             select(MissionInputRecord)
@@ -465,6 +472,13 @@ class ControlPlaneRepository:
             record.updated_at = utc_now()
             self.session.commit()
 
+    def save_qualification_questions(self, mission_id: str, questions: list[dict]) -> None:
+        record = self.session.get(MissionRecord, mission_id)
+        if record:
+            record.qualification_questions_json = json.dumps(questions, ensure_ascii=False)
+            record.updated_at = utc_now()
+            self.session.commit()
+
     def update_dossier_doc_status(
         self,
         mission_id: str,
@@ -529,12 +543,19 @@ class ControlPlaneRepository:
         except Exception:
             qual_answers = {}
 
+        # Parse qualification questions
+        try:
+            qual_questions = json.loads(record.qualification_questions_json or "[]")
+        except Exception:
+            qual_questions = []
+
         return {
             "id": record.id,
             "phase": record.phase or "intake",
             "currentWave": record.current_wave or 0,
             "intakeText": record.intake_text or "",
             "qualificationAnswers": qual_answers,
+            "qualificationQuestions": qual_questions,
             "documents": documents,
             "dossierReady": bool(record.dossier_ready),
             "questionHistory": question_history,

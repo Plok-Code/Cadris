@@ -378,6 +378,7 @@ export interface MissionStateResponse {
   currentWave: number;
   intakeText: string;
   qualificationAnswers: Record<string, string>;
+  qualificationQuestions: { question: string; context?: string }[];
   documents: DossierSection[];
   dossierReady: boolean;
   questionHistory: MissionQuestion[];

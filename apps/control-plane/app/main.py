@@ -380,6 +380,12 @@ async def delete_mission(
     mission = repository.get_mission_for_user(user.id, mission_id)
     if not mission:
         raise AppError.not_found("mission_not_found", "Mission not found.")
+
+    # Cleanup external resources (vector store)
+    vs_id = repository.get_vector_store_id_for_mission(mission_id)
+    if vs_id and file_search_client:
+        file_search_client.delete_vector_store(vs_id)
+
     repository.delete_mission(mission_id)
     return Response(status_code=204)
 
@@ -585,6 +591,9 @@ def _save_sse_state(
             _persist_dossier_from_docs(db_session, mission_id, collected_docs)
         elif etype == "qualification_questions":
             repository.update_mission_phase(mission_id, "qualification")
+            questions = data.get("questions", [])
+            if questions:
+                repository.save_qualification_questions(mission_id, questions)
         elif etype == "wave_started":
             wave = data.get("wave", 0)
             repository.update_mission_wave(mission_id, wave)
@@ -1068,10 +1077,17 @@ async def search_mission_inputs(
     if not vector_store_id:
         return SearchMissionInputsResponse(results=[])
 
+    # Build file_id → input_id mapping for correct citation resolution
+    file_id_map: dict[str, str] = {}
+    for inp in repository.list_mission_inputs(mission_id):
+        if inp.openai_file_id:
+            file_id_map[inp.openai_file_id] = inp.id
+
     search_results = file_search_client.search(
         vector_store_id=vector_store_id,
         query=payload.query,
         max_results=payload.max_results,
+        file_id_to_input_id=file_id_map,
     )
 
     citations: list[CitationItem] = []
