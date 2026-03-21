@@ -97,6 +97,7 @@ class RuntimeStartRequest(BaseModel):
     intake_text: str = Field(min_length=20, max_length=50_000)
     flow_code: FlowCode = "demarrage"
     plan: PlanCode = "free"
+    template_id: str | None = None
     supporting_inputs: list[RuntimeInputItem] = Field(default_factory=list, max_length=20)
 
 

@@ -240,6 +240,7 @@ class RuntimeStartRequest(ApiModel):
     intake_text: str
     flow_code: FlowCode = "demarrage"
     plan: PlanCode = "free"
+    template_id: str | None = None
     supporting_inputs: list[RuntimeInputItem] = Field(default_factory=list)
 
 

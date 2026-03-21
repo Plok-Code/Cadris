@@ -697,6 +697,7 @@ async def run_mission_stream(
                     intake_text=payload.intake_text.strip(),
                     flow_code=payload.flow_code,
                     plan=user_plan,
+                    template_id=payload.template_id,
                     supporting_inputs=[],
                 )
             ):

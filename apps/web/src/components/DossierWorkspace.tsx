@@ -42,7 +42,7 @@ export function DossierWorkspace({
     };
     const filenameMap = {
       markdown: `cadris-${missionId}-md.zip`,
-      pdf: `cadris-${missionId}.pdf`,
+      pdf: `cadris-${missionId}-pdf.zip`,
       pptx: `cadris-${missionId}.pptx`,
     };
 
