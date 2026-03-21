@@ -337,3 +337,33 @@ class MissionStateResponse(ApiModel):
 class ValidateDocsRequest(ApiModel):
     validated_doc_ids: list[str] = Field(default_factory=list)
     corrections: dict[str, str] = Field(default_factory=dict)
+
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    name: str = ""
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    password: str
+
+
+class CheckoutRequest(BaseModel):
+    plan: str
+
+
+class LogoGenerateRequest(BaseModel):
+    project_name: str
+    project_brief: str
+    num_variants: int = 3
