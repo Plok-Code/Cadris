@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Image from "next/image";
@@ -9,6 +10,7 @@ export default function HomePage() {
   const router = useRouter();
   const { data: session, status } = useSession();
   const isLoggedIn = status === "authenticated" && !!session?.user;
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
     <main className="lp">
@@ -46,7 +48,33 @@ export default function HomePage() {
               </>
             )}
           </div>
+          <button
+            className="lp-nav__hamburger"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            aria-label="Menu"
+          >
+            {mobileMenuOpen ? "\u2715" : "\u2630"}
+          </button>
         </div>
+        {mobileMenuOpen && (
+          <div className="lp-nav__mobile">
+            <a href="#problemes" className="lp-nav__mobile-link" onClick={() => setMobileMenuOpen(false)}>Problemes</a>
+            <a href="#comment" className="lp-nav__mobile-link" onClick={() => setMobileMenuOpen(false)}>Comment ca marche</a>
+            <a href="#tarifs" className="lp-nav__mobile-link" onClick={() => setMobileMenuOpen(false)}>Tarifs</a>
+            <div className="lp-nav__mobile-divider" />
+            {isLoggedIn ? (
+              <>
+                <button className="lp-nav__mobile-link" onClick={() => { setMobileMenuOpen(false); router.push("/projects"); }}>Mes projets</button>
+                <button className="lp-nav__mobile-btn" onClick={() => { setMobileMenuOpen(false); router.push("/mission"); }}>Nouveau cadrage</button>
+              </>
+            ) : (
+              <>
+                <button className="lp-nav__mobile-link" onClick={() => { setMobileMenuOpen(false); router.push("/login"); }}>Se connecter</button>
+                <button className="lp-nav__mobile-btn" onClick={() => { setMobileMenuOpen(false); router.push("/register"); }}>Essai gratuit</button>
+              </>
+            )}
+          </div>
+        )}
       </nav>
 
       {/* ── Hero ────────────────────────────────────── */}

@@ -484,6 +484,62 @@ button {
 }
 .lp-nav__signup:hover { opacity: 0.85; }
 
+.lp-nav__hamburger {
+  display: none;
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: var(--ds-text-primary);
+  padding: 4px;
+}
+
+.lp-nav__mobile {
+  display: none;
+  flex-direction: column;
+  padding: 16px 20px;
+  gap: 4px;
+  border-top: 1px solid var(--ds-bg-surface);
+}
+.lp-nav__mobile-link {
+  display: block;
+  padding: 10px 0;
+  color: var(--ds-text-secondary);
+  text-decoration: none;
+  font-size: 0.95rem;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+.lp-nav__mobile-link:hover { color: var(--ds-text-primary); }
+.lp-nav__mobile-divider {
+  height: 1px;
+  background: var(--ds-bg-surface);
+  margin: 8px 0;
+}
+.lp-nav__mobile-btn {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  background: var(--ds-text-primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+@media (max-width: 768px) {
+  .lp-nav__links { display: none; }
+  .lp-nav__actions { display: none; }
+  .lp-nav__hamburger { display: block; }
+  .lp-nav__mobile { display: flex; }
+}
+
 /* ── Shared buttons ────────────────────────────────────── */
 .lp-btn {
   font-family: var(--font-sans), system-ui, sans-serif;
@@ -4034,4 +4090,48 @@ select:focus-visible {
   .page-grid--two-columns {
     grid-template-columns: 1fr;
   }
+}
+
+/* ── 404 Page ─────────────────────────────────────────── */
+
+.not-found {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ds-bg-canvas);
+  padding: var(--ds-space-8) var(--ds-space-4);
+}
+.not-found__inner {
+  text-align: center;
+  max-width: 400px;
+}
+.not-found__logo {
+  margin-bottom: 20px;
+}
+.not-found__title {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--ds-text-primary);
+  margin: 0 0 12px;
+}
+.not-found__text {
+  font-size: 0.95rem;
+  color: var(--ds-text-secondary);
+  line-height: 1.5;
+  margin: 0 0 28px;
+}
+.not-found__cta {
+  display: inline-block;
+  padding: 10px 24px;
+  background: var(--ds-text-primary);
+  color: #fff;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.9rem;
+  transition: opacity 0.15s;
+}
+.not-found__cta:hover {
+  opacity: 0.85;
 }

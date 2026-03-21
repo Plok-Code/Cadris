@@ -84,6 +84,7 @@ function BillingContent() {
   const searchParams = useSearchParams();
   const [billing, setBilling] = useState<BillingData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const success = searchParams.get("success");
@@ -96,11 +97,18 @@ function BillingContent() {
   async function fetchBilling() {
     try {
       const res = await fetch("/api/cadris/billing/plans");
-      if (res.ok) {
-        setBilling(await res.json());
+      if (res.status === 401) {
+        router.replace("/login");
+        return;
       }
+      if (!res.ok) {
+        setError("Impossible de charger les informations de facturation.");
+        return;
+      }
+      setBilling(await res.json());
     } catch (err) {
       console.error("Failed to fetch billing:", err);
+      setError("Erreur de connexion au serveur.");
     } finally {
       setLoading(false);
     }
@@ -147,6 +155,17 @@ function BillingContent() {
       <main className="billing">
         <div className="billing__header">
           <h1 className="billing__title">Chargement...</h1>
+        </div>
+      </main>
+    );
+  }
+
+  if (error) {
+    return (
+      <main className="billing">
+        <div className="billing__header">
+          <h1 className="billing__title">Erreur</h1>
+          <p className="billing__subtitle">{error}</p>
         </div>
       </main>
     );

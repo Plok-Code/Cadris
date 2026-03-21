@@ -2,15 +2,6 @@ import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import GitHub from "next-auth/providers/github";
 import Credentials from "next-auth/providers/credentials";
-import Resend from "next-auth/providers/resend";
-import { UnstorageAdapter } from "@auth/unstorage-adapter";
-import { createStorage } from "unstorage";
-import memoryDriver from "unstorage/drivers/memory";
-
-// Use memory driver for auth token storage.
-// fs-lite driver cannot be imported here because this file is bundled
-// by the Edge middleware runtime which doesn't support node:fs.
-const storage = createStorage({ driver: memoryDriver() });
 
 /**
  * NextAuth v5 configuration for Cadris.
@@ -18,7 +9,7 @@ const storage = createStorage({ driver: memoryDriver() });
  * Providers:
  * - Google OAuth
  * - GitHub OAuth
- * - Resend Magic Link (email — production-ready)
+ * - Email + Password (via control-plane bcrypt verification)
  * - Dev credentials (email only, for local development)
  *
  * Session strategy: JWT (no database adapter needed).
@@ -34,11 +25,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     GitHub({
       clientId: process.env.GITHUB_CLIENT_ID,
       clientSecret: process.env.GITHUB_CLIENT_SECRET,
-    }),
-    // Magic Link via Resend
-    Resend({
-      apiKey: process.env.RESEND_API_KEY,
-      from: "Cadris <onboarding@resend.dev>",
     }),
     // Email + Password login
     Credentials({
@@ -84,12 +70,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       : []),
   ],
 
-  adapter: UnstorageAdapter(storage),
   session: { strategy: "jwt" },
 
   pages: {
     signIn: "/login",
-    verifyRequest: "/login?verify=1",
   },
 
   callbacks: {
@@ -98,7 +82,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       const { pathname } = request.nextUrl;
 
       // Public routes that don't require auth
-      const publicPaths = ["/", "/login", "/register", "/forgot-password", "/reset-password", "/shared", "/billing"];
+      const publicPaths = ["/", "/login", "/register", "/forgot-password", "/reset-password", "/shared"];
       const isPublic =
         publicPaths.some((p) => pathname === p || pathname.startsWith(p + "/")) ||
         pathname.startsWith("/api/auth") ||
