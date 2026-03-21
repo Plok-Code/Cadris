@@ -80,6 +80,49 @@ const WAVE_LABELS: Record<number, string> = {
   4: "Consolidation",
 };
 
+// ── Mission Header ────────────────────────────────────────
+
+function MissionHeader({ isActive, onQuit }: { isActive: boolean; onQuit: () => void }) {
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  const handleQuit = () => {
+    if (isActive) {
+      setShowConfirm(true);
+    } else {
+      onQuit();
+    }
+  };
+
+  return (
+    <>
+      <header className="mission-header">
+        <a href="/" className="mission-header__brand">
+          <img src="/cadris-favicon.svg" alt="" width={22} height={22} />
+          <span>CADRIS</span>
+        </a>
+        <button className="mission-header__quit" onClick={handleQuit}>
+          Quitter
+        </button>
+      </header>
+      {showConfirm && (
+        <div className="mission-header__confirm-overlay">
+          <div className="mission-header__confirm">
+            <p>Votre progression sera sauvegardée. Quitter ?</p>
+            <div className="mission-header__confirm-actions">
+              <button className="mission-header__confirm-cancel" onClick={() => setShowConfirm(false)}>
+                Rester
+              </button>
+              <button className="mission-header__confirm-leave" onClick={onQuit}>
+                Quitter
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ── Component ─────────────────────────────────────────────
 
 export default function MissionPage() {
@@ -124,6 +167,10 @@ export default function MissionPage() {
   const [selectedDocIndex, setSelectedDocIndex] = useState(0);
   const dossierContentRef = useRef<HTMLDivElement>(null);
 
+  // Mission header
+  const isMissionActive = phase === "wave_running" || phase === "qualifying" || phase === "qualification";
+  const handleQuitMission = () => router.push("/projects");
+
   // Download state
   const [downloadingFormat, setDownloadingFormat] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -152,7 +199,7 @@ export default function MissionPage() {
           const body = await response.json();
           throw new Error(body.message ?? `Erreur ${response.status}`);
         }
-        throw new Error(`Erreur de telechargement (${response.status})`);
+        throw new Error(`Erreur de téléchargement (${response.status})`);
       }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
@@ -164,7 +211,7 @@ export default function MissionPage() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (err) {
-      setDownloadError(err instanceof Error ? err.message : "Erreur de telechargement");
+      setDownloadError(err instanceof Error ? err.message : "Erreur de téléchargement");
     } finally {
       setDownloadingFormat(null);
     }
@@ -562,6 +609,7 @@ export default function MissionPage() {
   if (phase === "intake") {
     return (
       <main className="mission">
+        <MissionHeader isActive={isMissionActive} onQuit={handleQuitMission} />
         <div className="mission__intake">
           <h1 className="mission__intake-title">Decrivez votre projet</h1>
           <p className="mission__intake-hint">
@@ -570,7 +618,7 @@ export default function MissionPage() {
           </p>
           <textarea
             className="mission__intake-field"
-            placeholder="Ex: Je veux creer une plateforme SaaS qui aide les PME a gerer leurs devis et factures..."
+            placeholder="Ex : Je veux créer une plateforme SaaS qui aide les PME à gérer leurs devis et factures..."
             value={intakeText}
             onChange={(e) => setIntakeText(e.target.value)}
             rows={6}
@@ -611,6 +659,7 @@ export default function MissionPage() {
   if (phase === "qualifying") {
     return (
       <main className="mission">
+        <MissionHeader isActive={isMissionActive} onQuit={handleQuitMission} />
         <div className="mission__loading-screen">
           <div className="mission__spinner" />
           <p>Analyse de votre projet...</p>
@@ -627,6 +676,7 @@ export default function MissionPage() {
   if (phase === "qualification") {
     return (
       <main className="mission">
+        <MissionHeader isActive={isMissionActive} onQuit={handleQuitMission} />
         <div className="chat">
           <div className="chat__header">
             <h2 className="chat__title">Qualification du projet</h2>
@@ -702,6 +752,7 @@ export default function MissionPage() {
 
     return (
       <main className="mission">
+        <MissionHeader isActive={isMissionActive} onQuit={handleQuitMission} />
         <div className="mission__live">
           {waveProgress()}
           <h2 className="mission__live-title">
@@ -761,6 +812,7 @@ export default function MissionPage() {
     if (showBlockConfirm) {
       return (
         <main className="mission">
+        <MissionHeader isActive={isMissionActive} onQuit={handleQuitMission} />
           <div className="doc-review">
             {waveProgress()}
             <div className="block-confirm">
@@ -769,9 +821,9 @@ export default function MissionPage() {
               </h2>
               <p className="block-confirm__text">
                 {allBlockDocs.some((d) => d.correction) && canCorrect
-                  ? `Des corrections ont ete detectees. Les agents vont re-generer les documents du bloc. (${correctionsLeft - 1} correction${correctionsLeft - 1 > 1 ? "s" : ""} restante${correctionsLeft - 1 > 1 ? "s" : ""} apres celle-ci)`
+                  ? `Des corrections ont été détectées. Les agents vont re-générer les documents du bloc. (${correctionsLeft - 1} correction${correctionsLeft - 1 > 1 ? "s" : ""} restante${correctionsLeft - 1 > 1 ? "s" : ""} après celle-ci)`
                   : allBlockDocs.some((d) => d.correction) && !canCorrect
-                  ? "Vous avez utilise vos 3 corrections pour ce bloc. Les documents seront valides tels quels."
+                  ? "Vous avez utilisé vos 3 corrections pour ce bloc. Les documents seront validés tels quels."
                   : "Validez-vous tous les documents de ce bloc ? Vous ne pourrez plus revenir dessus."}
               </p>
               <div className="block-confirm__actions">
@@ -807,6 +859,7 @@ export default function MissionPage() {
     if (!doc || allBlockDocs.length === 0) {
       return (
         <main className="mission">
+        <MissionHeader isActive={isMissionActive} onQuit={handleQuitMission} />
           <div className="doc-review">
             {waveProgress()}
             <div className="mission__loading-screen">
@@ -820,6 +873,7 @@ export default function MissionPage() {
 
     return (
       <main className="mission">
+        <MissionHeader isActive={isMissionActive} onQuit={handleQuitMission} />
         <div className="doc-review">
           {waveProgress()}
 
@@ -995,6 +1049,7 @@ export default function MissionPage() {
 
   return (
     <main className="mission">
+      <MissionHeader isActive={isMissionActive} onQuit={handleQuitMission} />
       <div className="dossier">
         <div className="dossier__sidebar">
           <h3 className="dossier__sidebar-title">
