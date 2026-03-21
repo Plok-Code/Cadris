@@ -8,13 +8,10 @@ import { Suspense } from "react";
 function LoginContent() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [magicEmail, setMagicEmail] = useState("");
   const [loading, setLoading] = useState<string | null>(null);
-  const [magicSent, setMagicSent] = useState(false);
   const [error, setError] = useState("");
   const searchParams = useSearchParams();
   const router = useRouter();
-  const isVerify = searchParams.get("verify") === "1";
   const justRegistered = searchParams.get("registered") === "1";
   const justReset = searchParams.get("reset") === "1";
 
@@ -32,7 +29,7 @@ function LoginContent() {
       if (result?.error) {
         setError("Email ou mot de passe incorrect.");
       } else {
-        router.push("/billing");
+        router.push("/projects");
       }
     } catch {
       setError("Erreur de connexion. Reessayez.");
@@ -43,52 +40,15 @@ function LoginContent() {
 
   const handleOAuth = async (provider: string) => {
     setLoading(provider);
-    await signIn(provider, { callbackUrl: "/billing" });
-  };
-
-  const handleMagicLink = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!magicEmail.trim()) return;
-    setLoading("magic");
-    try {
-      await signIn("resend", { email: magicEmail, callbackUrl: "/billing", redirect: false });
-      setMagicSent(true);
-    } catch {
-      // error handled by NextAuth
-    } finally {
-      setLoading(null);
-    }
+    await signIn(provider, { callbackUrl: "/projects" });
   };
 
   const handleDevLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim()) return;
     setLoading("dev");
-    await signIn("dev-login", { email, callbackUrl: "/billing" });
+    await signIn("dev-login", { email, callbackUrl: "/projects" });
   };
-
-  if (isVerify || magicSent) {
-    return (
-      <main className="login">
-        <div className="login__container">
-          <div className="login__header">
-            <h1 className="login__title">Cadris</h1>
-            <div className="login__verify">
-              <div className="login__verify-icon">&#9993;&#65039;</div>
-              <h2 className="login__verify-title">Verifiez votre email</h2>
-              <p className="login__verify-text">
-                Un lien de connexion a ete envoye a <strong>{magicEmail || "votre adresse"}</strong>.
-                Cliquez sur le lien dans l&apos;email pour vous connecter.
-              </p>
-              <p className="login__verify-hint">
-                Le lien expire dans 10 minutes. Pensez a verifier vos spams.
-              </p>
-            </div>
-          </div>
-        </div>
-      </main>
-    );
-  }
 
   return (
     <main className="login">
@@ -96,15 +56,15 @@ function LoginContent() {
         <div className="login__header">
           <h1 className="login__title">Cadris</h1>
           <p className="login__subtitle">
-            Connectez-vous pour transformer votre idee en dossier de cadrage complet.
+            Connectez-vous pour transformer votre idée en dossier de cadrage complet.
           </p>
         </div>
 
         {justRegistered && (
-          <p className="login__success">Compte cree avec succes. Connectez-vous.</p>
+          <p className="login__success">Compte créé avec succès. Connectez-vous.</p>
         )}
         {justReset && (
-          <p className="login__success">Mot de passe reinitialise. Connectez-vous.</p>
+          <p className="login__success">Mot de passe réinitialisé. Connectez-vous.</p>
         )}
 
         {/* Email + Password — primary auth method */}
@@ -136,33 +96,9 @@ function LoginContent() {
             {loading === "credentials" ? "Connexion..." : "Se connecter"}
           </button>
           <div className="login__links">
-            <a href="/forgot-password" className="login__link">Mot de passe oublie ?</a>
-            <a href="/register" className="login__link">Creer un compte</a>
+            <a href="/forgot-password" className="login__link">Mot de passe oublié ?</a>
+            <a href="/register" className="login__link">Créer un compte</a>
           </div>
-        </form>
-
-        <div className="login__divider">
-          <span>ou</span>
-        </div>
-
-        {/* Magic Link */}
-        <form className="login__magic-form" onSubmit={handleMagicLink}>
-          <input
-            type="email"
-            className="login__magic-input"
-            placeholder="Recevoir un lien par email"
-            value={magicEmail}
-            onChange={(e) => setMagicEmail(e.target.value)}
-            disabled={loading !== null}
-            required
-          />
-          <button
-            type="submit"
-            className="login__btn login__btn--magic"
-            disabled={loading !== null || !magicEmail.trim()}
-          >
-            {loading === "magic" ? "Envoi..." : "Recevoir un lien de connexion"}
-          </button>
         </form>
 
         <div className="login__divider">
