@@ -2,17 +2,18 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-# 1. Install dependencies only (cached unless pyproject.toml changes)
+# 1. Install dependencies (cached unless pyproject.toml changes).
+#    Create a stub package so pip can resolve deps from pyproject.toml
+#    without needing the real source code yet.
 COPY pyproject.toml .
-RUN pip install --no-cache-dir $(python -c "
-import tomllib, pathlib
-d = tomllib.loads(pathlib.Path('pyproject.toml').read_text())
-print(' '.join(d['project']['dependencies']))
-")
+RUN mkdir -p cadris_cp && touch cadris_cp/__init__.py && \
+    pip install --no-cache-dir . && \
+    rm -rf cadris_cp/
 
-# 2. Copy application code (invalidates cache on code changes only)
+# 2. Copy real source code + reinstall package only (deps are cached)
 COPY cadris_cp/ cadris_cp/
 COPY sql/ sql/
+RUN pip install --no-cache-dir --no-deps .
 
 # 3. Run as non-root
 RUN adduser --disabled-password --no-create-home appuser
