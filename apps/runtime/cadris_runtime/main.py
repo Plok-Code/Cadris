@@ -129,6 +129,13 @@ async def healthcheck():
     return {"ok": True, **runtime_engine.health_payload()}
 
 
+@app.get("/internal/runtime/metrics")
+async def get_metrics(_auth: None = Depends(verify_internal_request)):
+    """Return runtime observability metrics (agent latency, error rates, mission counts)."""
+    from .metrics import metrics
+    return metrics.snapshot()
+
+
 @app.post("/internal/runtime/start", response_model=RuntimeStartResponse)
 async def start_runtime(payload: RuntimeStartRequest, _auth: None = Depends(verify_internal_request)):
     return await runtime_engine.start_mission(payload)

@@ -50,6 +50,7 @@ export function useMissionFlow() {
   const canCorrect = correctionsLeft > 0;
   const [downloadingFormat, setDownloadingFormat] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [streamDisconnected, setStreamDisconnected] = useState(false);
 
   const isMissionActive = phase === "wave_running" || phase === "qualifying" || phase === "qualification";
   const handleQuitMission = () => router.push("/projects");
@@ -151,11 +152,17 @@ export function useMissionFlow() {
     if (intakeText.trim().length < 20) return;
     setPhase("qualifying"); setError(null); setAgents({}); setDocuments([]);
     setQualQuestions([]); setChatMessages([]); setQualAnswers({}); setQualIndex(0);
+    setStreamDisconnected(false);
     try {
       await cadrisApi.streamMission(intakeText, handleEvent, "demarrage", selectedTemplate !== "standard" ? selectedTemplate : undefined);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Erreur inconnue";
       if (msg.includes("limite") || msg.includes("limit") || msg.includes("quota")) setPhase("quota_reached");
+      else if (msg.includes("timeout") || msg.includes("perdue") || msg.includes("network")) {
+        // Stream disconnected — show reconnect option instead of resetting to intake
+        setStreamDisconnected(true);
+        setError("Connexion perdue. Vous pouvez recharger l'état de la mission.");
+      }
       else { setError(msg); setPhase("intake"); }
     }
   };
@@ -166,9 +173,30 @@ export function useMissionFlow() {
 
   const handleResumeWave = async () => {
     if (!resumeId) return;
-    setError(null);
+    setError(null); setStreamDisconnected(false);
     try { await cadrisApi.resumeMissionStream(resumeId, "", "next_wave", handleEvent); }
-    catch (err) { setError(err instanceof Error ? err.message : "Erreur lors de la reprise"); }
+    catch (err) {
+      const msg = err instanceof Error ? err.message : "Erreur lors de la reprise";
+      if (msg.includes("timeout") || msg.includes("perdue") || msg.includes("network")) {
+        setStreamDisconnected(true);
+        setError("Connexion perdue. Vous pouvez recharger l'état de la mission.");
+      } else {
+        setError(msg);
+      }
+    }
+  };
+
+  const handleReconnect = async () => {
+    if (!missionId) return;
+    setError(null); setStreamDisconnected(false);
+    try {
+      const state = await cadrisApi.getMissionState(missionId);
+      // Reload mission phase and wave from server
+      if (state.phase) setPhase(state.phase as Phase);
+      if (state.currentWave) { setCurrentWave(state.currentWave); currentWaveRef.current = state.currentWave; }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Impossible de recharger la mission");
+    }
   };
 
   const handleRestart = () => {
@@ -188,5 +216,6 @@ export function useMissionFlow() {
     handleValidateDoc, handleCorrectDoc, handleClearCorrection, continueToNextWave,
     selectedDocIndex, setSelectedDocIndex, dossierContentRef, downloadingFormat, downloadError,
     handleDownload, handleRestart, handleResumeWave,
+    streamDisconnected, handleReconnect,
   };
 }

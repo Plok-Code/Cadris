@@ -22,6 +22,7 @@ from .critic import run_critic
 from .event_emitter import EventEmitter
 from .event_types import EventType
 from .memory import MissionMemory
+from .metrics import metrics
 from .model_config import get_model_for_agent
 from . import training_logger
 
@@ -223,6 +224,10 @@ async def _run_single_agent(
                 elapsed_ms=result.elapsed_ms,
             )
 
+        # Record metrics
+        metrics.record_agent_execution(spec.code, result.elapsed_ms, success=True)
+        metrics.record_documents(len(result.documents))
+
         memory.log({
             "agent": spec.code,
             "wave": wave_num,
@@ -239,6 +244,8 @@ async def _run_single_agent(
 
     except Exception as exc:  # noqa: BLE001 — fallback produces placeholder docs; mission must not stop
         logger.error("agent %s failed: %s", spec.code, exc, exc_info=True)
+        metrics.record_agent_execution(spec.code, 0, success=False)
+        metrics.record_agent_fallback(spec.code)
 
         # ── Fallback: produce minimal placeholder documents ──
         # Never leave gaps — downstream agents and consolidation need

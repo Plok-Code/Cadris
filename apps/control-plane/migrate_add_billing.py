@@ -47,12 +47,21 @@ def migrate():
     try:
         cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_stripe_customer_id ON users(stripe_customer_id)")
         print("  [idx]  unique index on stripe_customer_id")
-    except Exception as e:
+    except sqlite3.OperationalError as e:
+        # Expected: index already exists or duplicate data — safe to skip
         print(f"  [skip] index: {e}")
+    except Exception as e:
+        print(f"  [FAIL] index creation failed unexpectedly: {e}")
+        conn.close()
+        sys.exit(1)
 
-    # Update existing 'core' plans to 'free'
-    cursor.execute("UPDATE users SET plan = 'free' WHERE plan = 'core'")
-    updated = cursor.rowcount
+    # Update existing 'core' plans to 'free' (only if plan column exists)
+    updated = 0
+    if "plan" in existing or added > 0:
+        cursor.execute("UPDATE users SET plan = 'free' WHERE plan = 'core'")
+        updated = cursor.rowcount
+    else:
+        print("  [skip] plan column not found — skipping core→free migration")
 
     conn.commit()
     conn.close()

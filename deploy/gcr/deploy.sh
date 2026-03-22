@@ -22,11 +22,22 @@
 # ─────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-# TODO: Migrate all secrets to GCP Secret Manager for production.
-# Currently secrets are passed as env vars; this is acceptable for initial
-# deployment but should be replaced with secret references:
-#   --set-secrets="OPENAI_API_KEY=openai-key:latest,..."
+# Secrets are stored in GCP Secret Manager and injected at deploy time.
+# To create/update secrets:
+#   echo -n "your-value" | gcloud secrets create SECRET_NAME --data-file=- --project=$GCP_PROJECT
+#   echo -n "new-value" | gcloud secrets versions add SECRET_NAME --data-file=- --project=$GCP_PROJECT
+#
+# Required secrets (create before first deploy):
+#   cadris-openai-key, cadris-together-key, cadris-internal-secret,
+#   cadris-proxy-secret, cadris-nextauth-secret, cadris-database-url,
+#   cadris-google-client-id, cadris-google-client-secret,
+#   cadris-github-client-id, cadris-github-client-secret,
+#   cadris-stripe-secret-key, cadris-stripe-webhook-secret,
+#   cadris-resend-key
+#
+# Non-secret config (regions, model names, providers) stays in env vars.
 # See: https://cloud.google.com/run/docs/configuring/secrets
+USE_SECRET_MANAGER="${USE_SECRET_MANAGER:-false}"
 
 # ── Load .env.gcr if it exists ─────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -102,6 +113,27 @@ AR_REPO="${REGION}-docker.pkg.dev/${PROJECT}/cadris"
 # Image tagging: use git SHA + timestamp for rollback capability
 GIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 IMAGE_TAG="${GIT_SHA}-$(date +%Y%m%d%H%M%S)"
+
+# ── Secret Manager setup helper ─────────────────────────────────────
+ensure_secret_manager_api() {
+  if [ "${USE_SECRET_MANAGER}" = "true" ]; then
+    gcloud services enable secretmanager.googleapis.com --project="${PROJECT}" --quiet
+    echo "  ✅ Secret Manager API enabled"
+  fi
+}
+
+# Build --set-secrets flag for a Cloud Run deploy command.
+# Usage: build_secrets_flag "ENV_VAR=secret-name" "ENV_VAR2=secret-name2"
+build_secrets_flag() {
+  if [ "${USE_SECRET_MANAGER}" != "true" ]; then
+    return
+  fi
+  local pairs=()
+  for mapping in "$@"; do
+    pairs+=("${mapping}:latest")
+  done
+  echo "--set-secrets=$(IFS=,; echo "${pairs[*]}")"
+}
 
 echo ""
 echo "╔══════════════════════════════════════╗"
@@ -210,6 +242,16 @@ echo "  ✅ Renderer: ${RENDERER_URL}"
 
 # ── 5. Deploy runtime (internal) ──────────────────────────────────
 echo "[5/7] Deploying runtime..."
+RUNTIME_SECRETS_FLAG=""
+if [ "${USE_SECRET_MANAGER}" = "true" ]; then
+  RUNTIME_SECRETS_FLAG=$(build_secrets_flag \
+    "OPENAI_API_KEY=cadris-openai-key" \
+    "TOGETHER_API_KEY=cadris-together-key" \
+    "CADRIS_INTERNAL_SECRET=cadris-internal-secret" \
+    "CADRIS_RUNTIME_STATE_DB_URL=cadris-database-url" \
+  )
+fi
+
 gcloud run deploy cadris-runtime \
   --image "${AR_REPO}/runtime:${IMAGE_TAG}" \
   --region "${REGION}" \
@@ -224,11 +266,12 @@ gcloud run deploy cadris-runtime \
   --set-env-vars "\
 CADRIS_RUNTIME_PROVIDER=${RUNTIME_PROVIDER},\
 CADRIS_OPENAI_MODEL=${OPENAI_MODEL},\
+CADRIS_MODEL_PROFILE=prod" \
+  ${RUNTIME_SECRETS_FLAG:-$(echo "--set-env-vars=\
 CADRIS_RUNTIME_STATE_DB_URL=${DB_URL},\
 OPENAI_API_KEY=${OPENAI_KEY},\
 TOGETHER_API_KEY=${TOGETHER_API_KEY},\
-CADRIS_INTERNAL_SECRET=${INTERNAL_SECRET},\
-CADRIS_MODEL_PROFILE=prod" \
+CADRIS_INTERNAL_SECRET=${INTERNAL_SECRET}")} \
   --quiet
 
 RUNTIME_URL="$(gcloud run services describe cadris-runtime \

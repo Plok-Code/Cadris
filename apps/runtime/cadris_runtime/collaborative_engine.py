@@ -17,6 +17,7 @@ from .agent_specs import AGENT_SPECS
 from .event_emitter import EventEmitter
 from .event_types import EventType
 from .memory import MissionMemory
+from .metrics import metrics
 from . import training_logger
 from . import mission_store
 from .models import (
@@ -56,6 +57,7 @@ class CollaborativeEngine:
         resume_mission_stream with action="answer_qualification" to proceed.
         """
         memory = MissionMemory(mission_id=payload.mission_id, intake_text=payload.intake_text, plan=payload.plan)
+        metrics.record_mission_start(payload.plan)
 
         waves = get_specs_by_wave()
 
@@ -174,6 +176,7 @@ class CollaborativeEngine:
                 # All reviewable waves done → run consolidation → complete
                 logger.info("mission %s: running final consolidation wave", payload.mission_id)
                 await run_consolidation_wave(memory, event_emitter)
+                metrics.record_mission_complete()
                 # Log completion for training data
                 training_logger.log_mission_complete(
                     mission_id=payload.mission_id,
