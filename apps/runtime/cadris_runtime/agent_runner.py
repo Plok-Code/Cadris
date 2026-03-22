@@ -26,6 +26,7 @@ from .memory import DocumentDraft, MissionMemory
 from .model_config import ModelChoice, get_model_for_agent
 from .prompt_loader import load_prompt
 from .config import settings
+from .error_classification import is_json_error, is_retryable
 from .web_research import research_for_agent
 
 
@@ -395,25 +396,12 @@ async def run_agent(
                     pass  # consume the stream to completion
             output = streamed.final_output_as(spec.output_model)
             break
-        except Exception as exc:  # noqa: BLE001 — retry loop classifies errors dynamically
-            err_msg = str(exc).lower()
-            is_permanent = any(k in err_msg for k in (
-                "insufficient_quota", "invalid_api_key",
-            ))
-            is_json_error = any(k in err_msg for k in (
-                "invalid json", "json_invalid", "eof while parsing",
-                "validation error", "expected value",
-            ))
-            is_retryable = not is_permanent and (is_json_error or any(k in err_msg for k in (
-                "connection", "disconnected", "rate", "limit", "timeout",
-                "overloaded", "server_error", "502", "503", "529",
-            )))
-
-            if is_retryable and attempt < max_retries:
+        except Exception as exc:  # noqa: BLE001 — retry loop uses typed error classification
+            if is_retryable(exc) and attempt < max_retries:
                 wait = min(attempt * 30, 120)
 
                 # On JSON/validation errors: shorten the prompt to avoid truncation
-                if is_json_error:
+                if is_json_error(exc):
                     current_task = task + (
                         "\n\n## IMPORTANT — CONTRAINTE FORMAT\n"
                         "Ta reponse precedente avait un probleme de format JSON.\n"

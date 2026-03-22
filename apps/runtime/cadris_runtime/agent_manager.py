@@ -16,6 +16,7 @@ import asyncio
 import logging
 
 from .agent_runner import run_agent, AgentResult
+from .error_classification import is_retryable
 from .agent_specs import AGENT_SPECS, CRITIC_SPEC, AgentSpec, CriticOutput, get_specs_by_wave
 from .event_emitter import EventEmitter
 from .event_types import EventType
@@ -186,16 +187,8 @@ async def run_critic(
                 async for _event in streamed.stream_events():
                     pass
                 break
-            except Exception as retry_exc:  # noqa: BLE001 — retry loop classifies errors dynamically
-                err_msg = str(retry_exc).lower()
-                is_permanent = any(k in err_msg for k in (
-                    "insufficient_quota", "invalid_api_key", "invalid_request",
-                ))
-                is_retryable = not is_permanent and any(k in err_msg for k in (
-                    "connection", "disconnected", "rate", "limit", "timeout",
-                    "overloaded", "server_error", "502", "503", "529",
-                ))
-                if is_retryable and attempt < max_retries:
+            except Exception as retry_exc:  # noqa: BLE001 — retry loop uses typed error classification
+                if is_retryable(retry_exc) and attempt < max_retries:
                     wait = min(attempt * 30, 120)
                     logger.warning(
                         "critic attempt %d/%d failed (%s), retrying in %ds",

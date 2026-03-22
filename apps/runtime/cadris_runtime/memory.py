@@ -2,6 +2,18 @@
 
 Every agent reads from and writes to this central structure.
 The MissionMemory acts as the blackboard that all agents share.
+
+Architecture note — scaling limitation:
+    MissionMemory is purely in-RAM, scoped to a single runtime process.
+    This is intentional: each mission's SSE session is bound to one
+    runtime instance for its entire duration, and the control-plane
+    (not the runtime) is the persistent source of truth.
+
+    If horizontal scaling of the runtime is needed in the future,
+    MissionMemory would need to be replaced with a distributed store
+    (e.g. Redis) with optimistic locking, or the control-plane would
+    need to fully own state and the runtime would become truly stateless.
+    See also: mission_store.py for the current persistence fallback.
 """
 
 from __future__ import annotations

@@ -174,6 +174,7 @@ export interface CreateProjectRequest {
 export interface CreateMissionRequest {
   intakeText: string;
   flowCode?: FlowCode;
+  templateId?: string;
 }
 
 export interface AnswerQuestionRequest {
