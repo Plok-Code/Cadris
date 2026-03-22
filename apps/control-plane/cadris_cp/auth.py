@@ -47,7 +47,13 @@ def _verify_trusted_proxy_headers(
 ) -> None:
     secret = settings.trusted_proxy_secret
     if not secret:
-        return
+        if settings.allow_unsigned_requests:
+            return  # Dev-only: explicit opt-in to skip signature verification
+        raise AppError.unauthorized(
+            "Proxy signature not configured. "
+            "Set CONTROL_PLANE_TRUSTED_PROXY_SECRET or "
+            "CADRIS_ALLOW_UNSIGNED_REQUESTS=true for dev."
+        )
 
     if not timestamp or not signature:
         raise AppError.unauthorized("Missing trusted proxy signature.")

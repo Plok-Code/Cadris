@@ -19,6 +19,9 @@ class Settings(BaseModel):
     runtime_url: str = Field(default=os.getenv("CONTROL_PLANE_RUNTIME_URL", "http://127.0.0.1:8001"))
     renderer_url: str = Field(default=os.getenv("CONTROL_PLANE_RENDERER_URL", "http://127.0.0.1:8002"))
     trusted_proxy_secret: str | None = Field(default=os.getenv("CONTROL_PLANE_TRUSTED_PROXY_SECRET", None))
+    allow_unsigned_requests: bool = Field(
+        default=os.getenv("CADRIS_ALLOW_UNSIGNED_REQUESTS", "").lower() in ("1", "true", "yes")
+    )
     trusted_proxy_max_skew_seconds: int = Field(
         default=int(os.getenv("CONTROL_PLANE_TRUSTED_PROXY_MAX_SKEW_SECONDS", "300"))
     )

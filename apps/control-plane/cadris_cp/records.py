@@ -188,6 +188,7 @@ class ArtifactRecord(Base):
     certainty: Mapped[str] = mapped_column(Text())
     summary: Mapped[str] = mapped_column(Text())
     content: Mapped[str] = mapped_column(Text())
+    sections_json: Mapped[str] = mapped_column(Text(), default="[]")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[str] = mapped_column(default=utc_now)
     updated_at: Mapped[str] = mapped_column(default=utc_now)
@@ -220,8 +221,10 @@ class ExportRecord(Base):
     snapshot_version: Mapped[int] = mapped_column(Integer, default=1)
     partial: Mapped[bool] = mapped_column(Boolean, default=False)
     token: Mapped[str | None] = mapped_column(Text(), unique=True, nullable=True)
+    token_hash: Mapped[str | None] = mapped_column(Text(), nullable=True)
     file_url: Mapped[str | None] = mapped_column(Text(), nullable=True)
     revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+    expires_at: Mapped[str | None] = mapped_column(Text(), nullable=True)
     created_at: Mapped[str] = mapped_column(default=utc_now)
     revoked_at: Mapped[str | None] = mapped_column(nullable=True)
 

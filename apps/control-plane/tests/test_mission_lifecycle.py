@@ -41,6 +41,14 @@ def _make_start_response(*, status="waiting_user") -> RuntimeStartResponse:
                 certainty="unknown",
                 summary="Vision a definir.",
                 content="Le projet vise a ...",
+                sections=[
+                    {
+                        "key": "vision",
+                        "title": "Vision",
+                        "content": "Le projet vise a ...",
+                        "certainty": "unknown",
+                    }
+                ],
             ),
         ],
         active_question=MissionQuestion(
@@ -92,6 +100,14 @@ def _make_resume_response(*, completed=False) -> RuntimeResumeResponse:
                 certainty="solid" if completed else "to_confirm",
                 summary="Vision clarifiee.",
                 content="Le projet vise a creer une plateforme.",
+                sections=[
+                    {
+                        "key": "vision",
+                        "title": "Vision",
+                        "content": "Le projet vise a creer une plateforme.",
+                        "certainty": "solid" if completed else "to_confirm",
+                    }
+                ],
             ),
         ],
         active_question=None if completed else MissionQuestion(
@@ -306,6 +322,31 @@ class TestMissionStreaming:
         assert plans.status_code == 200
         assert plans.json()["missions_this_month"] == 0
 
+    def test_resume_wave_running_replays_current_wave_instead_of_skipping(self, client, auth_headers, mock_runtime):
+        mock_runtime.start_mission_stream.return_value = _stream_events(
+            {"event": "wave_started", "data": {"wave": 2}},
+        )
+
+        start_resp = client.post(
+            "/api/missions/run",
+            json={"intakeText": INTAKE_TEXT, "flowCode": "demarrage"},
+            headers=auth_headers,
+        )
+        assert start_resp.status_code == 200
+
+        mission_id = client.get("/api/missions", headers=auth_headers).json()[0]["id"]
+
+        mock_runtime.resume_mission_stream.return_value = _stream_events()
+        resume_resp = client.post(
+            f"/api/missions/{mission_id}/resume",
+            json={"answerText": "", "action": "next_wave"},
+            headers=auth_headers,
+        )
+
+        assert resume_resp.status_code == 200
+        payload = mock_runtime.resume_mission_stream.call_args.args[0]
+        assert payload.action == "refine_wave"
+
 
 class TestAnswerQuestion:
     def _setup_mission(self, client, auth_headers, mock_runtime):
@@ -401,7 +442,33 @@ class TestGetMission:
         assert mission["id"] == mission_id
         assert mission["status"] == "waiting_user"
         assert len(mission["artifactBlocks"]) >= 1
+        assert mission["artifactBlocks"][0]["sections"][0]["key"] == "vision"
         assert len(mission["timeline"]) >= 1
+
+
+class TestLogoEndpoint:
+    def test_logo_requires_expert_plan(self, client, auth_headers, mock_runtime):
+        mock_runtime.start_mission.return_value = _make_start_response()
+        project = _create_project(client, auth_headers)
+        create_resp = client.post(
+            f"/api/projects/{project['id']}/missions",
+            json={"intakeText": INTAKE_TEXT},
+            headers=auth_headers,
+        )
+        mission_id = create_resp.json()["mission"]["id"]
+
+        resp = client.post(
+            f"/api/missions/{mission_id}/logo",
+            json={
+                "projectName": "Cadris",
+                "projectBrief": "Un outil pour structurer le cadrage produit.",
+                "numVariants": 2,
+            },
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 403
+        assert resp.json()["code"] == "plan_required"
 
 
 # ---------------------------------------------------------------------------
@@ -448,6 +515,36 @@ class TestDossierShare:
         resp = client.post("/api/missions/nonexistent/dossier/share", headers=auth_headers)
         assert resp.status_code == 404
 
+    def test_share_link_prefers_allowed_origin_header(self, client, auth_headers, mock_runtime, mock_renderer):
+        project = _create_project(client, auth_headers)
+        mock_runtime.start_mission.return_value = _make_start_response(status="waiting_user")
+        create_resp = client.post(
+            f"/api/projects/{project['id']}/missions",
+            json={"intakeText": INTAKE_TEXT},
+            headers=auth_headers,
+        )
+        mission_id = create_resp.json()["mission"]["id"]
+
+        mock_runtime.resume_mission.return_value = _make_resume_response(completed=True)
+        from cadris_cp.models import RendererResponse
+        mock_renderer.render_markdown.return_value = RendererResponse(
+            markdown="# Dossier de cadrage\n\nContenu complet."
+        )
+
+        answer_resp = client.post(
+            f"/api/missions/{mission_id}/answers",
+            json={"answerText": "Notre objectif est de digitaliser les processus RH des PME."},
+            headers=auth_headers,
+        )
+        assert answer_resp.status_code == 200
+
+        share_resp = client.post(
+            f"/api/missions/{mission_id}/dossier/share",
+            headers={**auth_headers, "origin": "http://localhost:3001"},
+        )
+        assert share_resp.status_code == 200
+        assert share_resp.json()["shareUrl"].startswith("http://localhost:3001/api/shared/")
+
 
 class TestSharedDossierAccess:
     def test_invalid_share_token_404(self, client):
@@ -485,7 +582,8 @@ class TestSharedDossierAccess:
 
         share_resp = client.post(f"/api/missions/{mission_id}/dossier/share", headers=auth_headers)
         assert share_resp.status_code == 200
-        token = share_resp.json()["export"]["token"]
+        share_url = share_resp.json()["shareUrl"]
+        token = share_url.rsplit("/", 1)[-1]
 
         resp = client.get(f"/api/shared/{token}")
         assert resp.status_code == 200
@@ -580,7 +678,8 @@ class TestFullLifecycle:
         share_data = resp.json()
         assert "shareUrl" in share_data
         assert "export" in share_data
-        token = share_data["export"]["token"]
+        share_url = share_data["shareUrl"]
+        token = share_url.rsplit("/", 1)[-1]
         export_id = share_data["export"]["id"]
 
         # 7. List exports

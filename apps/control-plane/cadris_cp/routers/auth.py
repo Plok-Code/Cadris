@@ -122,14 +122,15 @@ async def auth_forgot_password(
         token = secrets.token_urlsafe(32)
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         expires_at = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+        token_id = str(uuid4())
         repo.create_password_reset_token(
-            token_id=str(uuid4()), user_id=user.id,
+            token_id=token_id, user_id=user.id,
             token_hash=token_hash, expires_at=expires_at,
         )
         reset_url = f"{settings.frontend_url}/reset-password?token={token}"
         try:
             async with httpx.AsyncClient() as client:
-                await client.post(
+                resp = await client.post(
                     "https://api.resend.com/emails",
                     headers={"Authorization": f"Bearer {settings.resend_api_key}"},
                     json={
@@ -145,8 +146,11 @@ async def auth_forgot_password(
                         ),
                     },
                 )
+                resp.raise_for_status()
         except Exception:  # noqa: BLE001 — email delivery is best-effort
-            logger.exception("Failed to send password reset email")
+            logger.exception("Failed to send password reset email to %s", email)
+            # Invalidate the dangling token so it can't be used
+            repo.mark_reset_token_used(token_id)
 
     return {"message": msg}
 

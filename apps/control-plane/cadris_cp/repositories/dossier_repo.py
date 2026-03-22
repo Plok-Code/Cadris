@@ -165,6 +165,8 @@ class DossierRepoMixin:
         mission_id: str,
         format: str,
         token: str | None = None,
+        token_hash: str | None = None,
+        expires_at: str | None = None,
         bundle_type: str = "MissionDossier",
     ) -> ExportReadModel:
         record = ExportRecord(
@@ -173,6 +175,8 @@ class DossierRepoMixin:
             bundle_type=bundle_type,
             format=format,
             token=token,
+            token_hash=token_hash,
+            expires_at=expires_at,
             created_at=utc_now(),
         )
         self.session.add(record)
@@ -181,8 +185,17 @@ class DossierRepoMixin:
         return self._to_export_read_model(record)
 
     def get_export_by_token(self, token: str) -> ExportRecord | None:
+        """Legacy lookup by plaintext token (backward compat)."""
         statement = select(ExportRecord).where(
             ExportRecord.token == token,
+            ExportRecord.revoked == False,  # noqa: E712
+        )
+        return self.session.scalar(statement)
+
+    def get_export_by_token_hash(self, token_hash: str) -> ExportRecord | None:
+        """Lookup by SHA-256 hash of the share token."""
+        statement = select(ExportRecord).where(
+            ExportRecord.token_hash == token_hash,
             ExportRecord.revoked == False,  # noqa: E712
         )
         return self.session.scalar(statement)

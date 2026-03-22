@@ -11,6 +11,7 @@ from pathlib import Path
 from uuid import uuid4
 os.environ.setdefault("CADRIS_LOAD_DOTENV", "0")
 os.environ.setdefault("CONTROL_PLANE_TRUSTED_PROXY_SECRET", "")
+os.environ.setdefault("CADRIS_ALLOW_UNSIGNED_REQUESTS", "true")
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, Session
