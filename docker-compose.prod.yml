@@ -51,6 +51,7 @@ services:
     deploy:
       resources:
         limits:
+          cpus: "1"
           memory: 512M
 
   runtime:
@@ -74,6 +75,7 @@ services:
     deploy:
       resources:
         limits:
+          cpus: "1"
           memory: 512M
 
   renderer:
@@ -87,6 +89,7 @@ services:
     deploy:
       resources:
         limits:
+          cpus: "0.5"
           memory: 256M
 
   web:
@@ -111,6 +114,7 @@ services:
     deploy:
       resources:
         limits:
+          cpus: "1"
           memory: 512M
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]

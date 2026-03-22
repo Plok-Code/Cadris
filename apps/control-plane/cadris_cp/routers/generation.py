@@ -5,8 +5,6 @@ import json
 import logging
 from uuid import uuid4
 
-import httpx
-import openai
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -130,29 +128,36 @@ async def answer_question(
         dossier_ready=is_final and dossier is not None,
         updated_at=utc_now(),
     )
-    repository.upsert_mission(updated_mission)
-    repository.append_mission_input(
-        mission_id=mission.id,
-        kind="user_answer",
-        source="user",
-        content=payload.answer_text.strip(),
-    )
-    repository.answer_latest_question(mission_id=mission.id, answer_text=payload.answer_text.strip())
-    if runtime_response.active_question:
-        repository.upsert_question(mission_id=mission.id, question=runtime_response.active_question)
-    repository.replace_mission_agents(mission_id=mission.id, agents=updated_mission.active_agents)
-    repository.replace_messages(mission_id=mission.id, messages=updated_mission.recent_messages)
-    repository.update_agent_run(run_id=run_id, status=updated_mission.status)
 
-    # Persist dossier ONLY after mission is persisted with matching state
-    if dossier is not None:
-        repository.upsert_dossier(dossier)
+    # ── Atomic transaction: mission + dossier + project must all succeed or all rollback ──
+    try:
+        repository.upsert_mission(updated_mission)
+        repository.append_mission_input(
+            mission_id=mission.id,
+            kind="user_answer",
+            source="user",
+            content=payload.answer_text.strip(),
+        )
+        repository.answer_latest_question(mission_id=mission.id, answer_text=payload.answer_text.strip())
+        if runtime_response.active_question:
+            repository.upsert_question(mission_id=mission.id, question=runtime_response.active_question)
+        repository.replace_mission_agents(mission_id=mission.id, agents=updated_mission.active_agents)
+        repository.replace_messages(mission_id=mission.id, messages=updated_mission.recent_messages)
+        repository.update_agent_run(run_id=run_id, status=updated_mission.status)
 
-    repository.update_project_after_mission(
-        project_id=project.id,
-        active_mission_id=updated_mission.id,
-        active_mission_status=updated_mission.status,
-    )
+        if dossier is not None:
+            repository.upsert_dossier(dossier)
+
+        repository.update_project_after_mission(
+            user_id=user.id,
+            project_id=project.id,
+            active_mission_id=updated_mission.id,
+            active_mission_status=updated_mission.status,
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
 
     persisted_mission = repository.get_mission_for_user(user.id, updated_mission.id)
     if persisted_mission is None:
@@ -183,11 +188,12 @@ async def generate_mission_logo(
             "La generation de logo necessite le plan Expert.",
         )
 
+    import os
+    import httpx
+    import openai
     from openai import AsyncOpenAI
 
-    openai_key = settings.openai_api_key if hasattr(settings, "openai_api_key") else None
-    if not openai_key:
-        openai_key = __import__("os").environ.get("OPENAI_API_KEY")
+    openai_key = settings.openai_api_key or os.environ.get("OPENAI_API_KEY")
     if not openai_key:
         raise AppError.internal("openai_not_configured", "OpenAI n'est pas configure.")
 

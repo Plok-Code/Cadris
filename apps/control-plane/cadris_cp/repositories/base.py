@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from ..models import (
     ArtifactBlock,
+    ArtifactSectionItem,
     CertaintyEntry,
     CitationItem,
     DossierReadModel,
@@ -36,8 +37,7 @@ from ..records import (
 )
 
 
-def utc_now() -> str:
-    return datetime.now(UTC).isoformat()
+from ..models.base import utc_now  # single source of truth — no duplicates
 
 
 class BaseRepository:
@@ -75,6 +75,10 @@ class BaseRepository:
                     certainty=item.certainty,
                     summary=item.summary,
                     content=item.content,
+                    sections=[
+                        ArtifactSectionItem(**s)
+                        for s in json.loads(item.sections_json or "[]")
+                    ],
                 )
                 for item in artifacts
             ],
@@ -185,7 +189,7 @@ class BaseRepository:
             format=record.format,
             snapshot_version=record.snapshot_version,
             partial=record.partial,
-            token=record.token,
+            token=None,  # Never expose raw tokens in API responses
             file_url=record.file_url,
             revoked=record.revoked,
             created_at=record.created_at,

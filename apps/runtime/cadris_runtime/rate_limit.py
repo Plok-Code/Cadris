@@ -1,12 +1,10 @@
 """In-memory sliding-window rate limiter with bounded memory.
 
-Limitation: NOT shared across processes. Suitable for single-instance
-or per-container deployments (Cloud Run, single Gunicorn worker).
-For multi-replica setups, replace with Redis-backed counters.
+Copied from control-plane pattern. NOT shared across processes.
+Suitable for single-instance or per-container deployments (Cloud Run).
 
 Memory safety: keys are evicted on access (lazy) and via periodic
-full sweep. MAX_KEYS caps total entries to prevent unbounded growth
-from enumerated user IDs or IPs.
+full sweep. MAX_KEYS caps total entries to prevent unbounded growth.
 """
 from __future__ import annotations
 

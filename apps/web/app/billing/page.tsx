@@ -4,10 +4,20 @@ import { useState, useEffect, Suspense } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-const ALLOWED_STRIPE_ORIGINS = [
+const ALLOWED_STRIPE_ORIGINS = new Set([
   "https://checkout.stripe.com",
   "https://billing.stripe.com",
-];
+]);
+
+/** Validate a Stripe redirect URL by comparing parsed origin (not startsWith). */
+function isAllowedStripeUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return ALLOWED_STRIPE_ORIGINS.has(parsed.origin);
+  } catch {
+    return false;
+  }
+}
 
 interface PlanInfo {
   name: string;
@@ -129,7 +139,7 @@ function BillingContent() {
         body: JSON.stringify({ plan }),
       });
       const data = await res.json();
-      if (data.url && ALLOWED_STRIPE_ORIGINS.some(origin => data.url.startsWith(origin))) {
+      if (data.url && isAllowedStripeUrl(data.url)) {
         window.location.href = data.url;
       }
     } catch (err) {
@@ -146,7 +156,7 @@ function BillingContent() {
         method: "POST",
       });
       const data = await res.json();
-      if (data.url && ALLOWED_STRIPE_ORIGINS.some(origin => data.url.startsWith(origin))) {
+      if (data.url && isAllowedStripeUrl(data.url)) {
         window.location.href = data.url;
       }
     } catch (err) {

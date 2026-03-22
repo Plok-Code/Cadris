@@ -37,13 +37,27 @@ class EventEmitter:
         self._queue: asyncio.Queue[SSEEvent | object] = asyncio.Queue(maxsize=maxsize)
         self._closed = False
 
+    _EMIT_TIMEOUT = 30.0  # seconds — if consumer is gone, don't block forever
+
     async def emit(self, event_type: EventType, data: dict) -> None:
-        """Push an event into the stream."""
+        """Push an event into the stream with backpressure timeout.
+
+        If the consumer has disconnected or is too slow, the put() will
+        time out after _EMIT_TIMEOUT seconds. The event is dropped with
+        a warning rather than blocking the mission indefinitely.
+        """
         if self._closed:
             logger.warning("emit called on closed emitter: %s", event_type)
             return
         event = SSEEvent(type=event_type, data=data)
-        await self._queue.put(event)
+        try:
+            await asyncio.wait_for(self._queue.put(event), timeout=self._EMIT_TIMEOUT)
+        except TimeoutError:
+            logger.warning(
+                "emit timed out after %.0fs for %s (queue full, consumer likely disconnected)",
+                self._EMIT_TIMEOUT, event_type.value,
+            )
+            return
         logger.debug("emitted %s", event_type.value)
 
     async def close(self) -> None:

@@ -133,6 +133,13 @@ async def get_dossier_pptx(
     from pptx.util import Inches, Pt
 
     repository = ControlPlaneRepository(session)
+
+    # PPTX export is reserved for Pro and Expert plans
+    db_user = repository.get_user(user.id)
+    user_plan = db_user.plan if db_user else "free"
+    if user_plan not in ("pro", "expert"):
+        raise AppError.forbidden("Le format PowerPoint est reserve aux plans Pro et Expert.")
+
     dossier = repository.get_dossier_for_user(user.id, mission_id)
     if not dossier:
         raise AppError.not_found("dossier_not_found", "Dossier not found.")
@@ -179,6 +186,21 @@ async def get_dossier_pptx(
     )
 
 
+def _build_markdown_zip(dossier) -> bytes:
+    """Build a ZIP archive of all dossier sections as .md files."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for section in dossier.sections:
+            md_path = _safe_zip_path(section.id, ".md")
+            if md_path is None:
+                continue
+            raw = section.content.strip()
+            content = raw if raw.startswith("#") else f"# {section.title}\n\n{raw}"
+            zf.writestr(md_path, content)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
 @router.get("/{mission_id}/dossier/markdown")
 async def get_dossier_markdown(
     mission_id: str,
@@ -191,16 +213,7 @@ async def get_dossier_markdown(
     if not dossier:
         raise AppError.not_found("dossier_not_found", "Dossier not found.")
 
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for section in dossier.sections:
-            md_path = _safe_zip_path(section.id, ".md")
-            if md_path is None:
-                continue
-            raw = section.content.strip()
-            content = raw if raw.startswith("#") else f"# {section.title}\n\n{raw}"
-            zf.writestr(md_path, content)
-    buffer.seek(0)
+    zip_bytes = _build_markdown_zip(dossier)
 
     repository.create_export(
         export_id=str(uuid4()),
@@ -209,7 +222,7 @@ async def get_dossier_markdown(
     )
 
     return Response(
-        content=buffer.getvalue(),
+        content=zip_bytes,
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="cadris-{mission_id}-md.zip"'},
     )
@@ -221,22 +234,13 @@ async def get_dossier_zip(
     user: AuthenticatedUser = Depends(require_user),
     session: Session = Depends(get_session),
 ):
+    """Download all docs as a ZIP of .md files (alias for /markdown)."""
     repository = ControlPlaneRepository(session)
     dossier = repository.get_dossier_for_user(user.id, mission_id)
     if not dossier:
         raise AppError.not_found("dossier_not_found", "Dossier not found.")
 
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for section in dossier.sections:
-            md_path = _safe_zip_path(section.id, ".md")
-            if md_path is None:
-                continue
-            raw = section.content.strip()
-            content = raw if raw.startswith("#") else f"# {section.title}\n\n{raw}"
-            zf.writestr(md_path, content)
-
-    buffer.seek(0)
+    zip_bytes = _build_markdown_zip(dossier)
 
     repository.create_export(
         export_id=str(uuid4()),
@@ -245,7 +249,7 @@ async def get_dossier_zip(
     )
 
     return Response(
-        content=buffer.getvalue(),
+        content=zip_bytes,
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="cadris-{mission_id}.zip"'},
     )

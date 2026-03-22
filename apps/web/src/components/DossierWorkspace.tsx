@@ -1,10 +1,8 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import ReactMarkdown from "react-markdown";
-import rehypeSanitize from "rehype-sanitize";
-import remarkGfm from "remark-gfm";
 import type { DossierReadModel, ExportReadModel } from "@cadris/schemas";
+import { MarkdownContent } from "../../app/mission/MarkdownContent";
 import { AppShell } from "./AppShell";
 import { cadrisApi } from "../lib/api";
 import { StatusTag } from "./StatusTag";
@@ -223,9 +221,7 @@ export function DossierWorkspace({
                     <StatusTag code={activeSection.certainty} />
                   </div>
                   <div className="dossier__doc-content markdown-body">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
-                      {activeSection.content}
-                    </ReactMarkdown>
+                    <MarkdownContent content={activeSection.content} />
                   </div>
                 </>
               )}

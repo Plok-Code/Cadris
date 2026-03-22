@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.orm import selectinload
 
 from .base import utc_now
 from ..models import (
@@ -77,6 +78,10 @@ class MissionRepoMixin:
                     certainty=artifact.certainty,
                     summary=artifact.summary,
                     content=artifact.content,
+                    sections_json=json.dumps(
+                        [s.model_dump(mode="json", by_alias=True) for s in artifact.sections],
+                        ensure_ascii=True,
+                    ),
                     sort_order=index,
                     created_at=utc_now(),
                     updated_at=utc_now(),
@@ -91,6 +96,13 @@ class MissionRepoMixin:
             select(MissionRecord)
             .join(ProjectRecord, MissionRecord.project_id == ProjectRecord.id)
             .where(MissionRecord.id == mission_id, ProjectRecord.user_id == user_id)
+            .options(
+                selectinload(MissionRecord.inputs),
+                selectinload(MissionRecord.artifacts),
+                selectinload(MissionRecord.agents),
+                selectinload(MissionRecord.messages),
+                selectinload(MissionRecord.questions),
+            )
         )
         record = self.session.scalar(statement)
         if record is None:
@@ -109,20 +121,22 @@ class MissionRepoMixin:
             self.session.delete(mission)
         self.session.commit()
 
-    def list_missions_for_user(self, user_id: str) -> list[dict]:
+    def list_missions_for_user(self, user_id: str, *, skip: int = 0, limit: int = 50) -> list[dict]:
         statement = (
             select(MissionRecord)
             .join(ProjectRecord, MissionRecord.project_id == ProjectRecord.id)
             .where(ProjectRecord.user_id == user_id)
             .order_by(MissionRecord.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+            .options(selectinload(MissionRecord.dossier))
         )
         results = []
         for m in self.session.scalars(statement).all():
             section_count = 0
-            dossier = self.session.get(DossierRecord, m.id)
-            if dossier and dossier.sections_json:
+            if m.dossier and m.dossier.sections_json:
                 try:
-                    section_count = len(json.loads(dossier.sections_json))
+                    section_count = len(json.loads(m.dossier.sections_json))
                 except (json.JSONDecodeError, TypeError):
                     pass
             results.append({
@@ -171,13 +185,17 @@ class MissionRepoMixin:
             select(MissionRecord)
             .join(ProjectRecord, MissionRecord.project_id == ProjectRecord.id)
             .where(MissionRecord.id == mission_id, ProjectRecord.user_id == user_id)
+            .options(
+                selectinload(MissionRecord.dossier),
+                selectinload(MissionRecord.questions),
+            )
         )
         record = self.session.scalar(statement)
         if record is None:
             return None
 
         documents = []
-        dossier = self.session.get(DossierRecord, mission_id)
+        dossier = record.dossier
         if dossier and dossier.sections_json:
             try:
                 documents = json.loads(dossier.sections_json)

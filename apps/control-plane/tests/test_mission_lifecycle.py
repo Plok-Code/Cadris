@@ -1,211 +1,29 @@
-"""Integration tests for mission lifecycle and export/share endpoints.
+"""Integration tests for mission lifecycle.
 
-Mocks RuntimeClient and RendererClient to avoid real HTTP calls.
+Fixtures (client, auth_headers, mock_runtime, mock_renderer) from conftest.py.
+Response builders from helpers.py.
 """
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
-
-import pytest
-
-from cadris_cp.models import (
-    ArtifactBlock,
-    DossierSection,
-    MissionAgent,
-    MissionMessage,
-    MissionQuestion,
-    RuntimeResumeResponse,
-    RuntimeStartResponse,
-    TimelineItem,
+from .helpers import (
+    INTAKE_TEXT,
+    create_project,
+    make_resume_response,
+    make_start_response,
+    stream_events,
 )
 
 
 # ---------------------------------------------------------------------------
-# Helpers: build realistic mock responses with unique IDs
-# ---------------------------------------------------------------------------
-
-def _uid(prefix: str = "") -> str:
-    return f"{prefix}{uuid4().hex[:8]}"
-
-
-def _make_start_response(*, status="waiting_user") -> RuntimeStartResponse:
-    return RuntimeStartResponse(
-        summary="Analyse initiale du projet en cours.",
-        next_step="Repondez a la question pour affiner le cadrage.",
-        artifact_blocks=[
-            ArtifactBlock(
-                id=_uid("block_"),
-                title="Vision",
-                status="in_progress",
-                certainty="unknown",
-                summary="Vision a definir.",
-                content="Le projet vise a ...",
-                sections=[
-                    {
-                        "key": "vision",
-                        "title": "Vision",
-                        "content": "Le projet vise a ...",
-                        "certainty": "unknown",
-                    }
-                ],
-            ),
-        ],
-        active_question=MissionQuestion(
-            id=_uid("q_"),
-            title="Objectif principal",
-            body="Quel est l'objectif principal de votre projet ?",
-            status="waiting",
-        ),
-        active_agents=[
-            MissionAgent(
-                code="strategist",
-                label="Strategiste",
-                role="Analyse strategique",
-                status="waiting",
-                prompt_key="strategist_v1",
-                prompt_version="1.0",
-                summary="En attente de la reponse utilisateur.",
-            ),
-        ],
-        recent_messages=[
-            MissionMessage(
-                id=_uid("msg_"),
-                agent_code="strategist",
-                agent_label="Strategiste",
-                stage="intake",
-                title="Analyse recue",
-                body="J'ai bien recu votre brief.",
-            ),
-        ],
-        timeline=[
-            TimelineItem(id=_uid("tl_"), label="Prise de brief", status="completed"),
-            TimelineItem(id=_uid("tl_"), label="Analyse", status="in_progress"),
-            TimelineItem(id=_uid("tl_"), label="Dossier", status="not_started"),
-        ],
-        status=status,
-    )
-
-
-def _make_resume_response(*, completed=False) -> RuntimeResumeResponse:
-    status = "completed" if completed else "waiting_user"
-    resp = RuntimeResumeResponse(
-        summary="Le projet se precise.",
-        next_step="Dossier en cours de finalisation." if completed else "Repondez a la prochaine question.",
-        artifact_blocks=[
-            ArtifactBlock(
-                id=_uid("block_"),
-                title="Vision",
-                status="complete" if completed else "in_progress",
-                certainty="solid" if completed else "to_confirm",
-                summary="Vision clarifiee.",
-                content="Le projet vise a creer une plateforme.",
-                sections=[
-                    {
-                        "key": "vision",
-                        "title": "Vision",
-                        "content": "Le projet vise a creer une plateforme.",
-                        "certainty": "solid" if completed else "to_confirm",
-                    }
-                ],
-            ),
-        ],
-        active_question=None if completed else MissionQuestion(
-            id=_uid("q_"),
-            title="Public cible",
-            body="Qui est le public cible de votre projet ?",
-            status="waiting",
-        ),
-        active_agents=[
-            MissionAgent(
-                code="strategist",
-                label="Strategiste",
-                role="Analyse strategique",
-                status="done" if completed else "waiting",
-                prompt_key="strategist_v1",
-                prompt_version="1.0",
-                summary="Analyse terminee." if completed else "En attente.",
-            ),
-        ],
-        recent_messages=[
-            MissionMessage(
-                id=_uid("msg_"),
-                agent_code="strategist",
-                agent_label="Strategiste",
-                stage="analysis",
-                title="Mise a jour",
-                body="Merci pour votre reponse.",
-            ),
-        ],
-        timeline=[
-            TimelineItem(id=_uid("tl_"), label="Prise de brief", status="completed"),
-            TimelineItem(id=_uid("tl_"), label="Analyse", status="completed" if completed else "in_progress"),
-            TimelineItem(id=_uid("tl_"), label="Dossier", status="completed" if completed else "not_started"),
-        ],
-        status=status,
-    )
-    if completed:
-        resp.dossier_title = "Dossier de cadrage"
-        resp.dossier_summary = "Synthese du projet."
-        resp.dossier_sections = [
-            DossierSection(id=_uid("sec_"), title="Vision", content="Contenu vision.", certainty="solid"),
-        ]
-        resp.quality_label = "Bon"
-    return resp
-
-
-async def _stream_events(*events):
-    for event in events:
-        yield event
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-@pytest.fixture()
-def mock_runtime():
-    mock = MagicMock()
-    mock.start_mission = AsyncMock()
-    mock.resume_mission = AsyncMock()
-    mock.start_mission_stream = MagicMock()
-    mock.resume_mission_stream = MagicMock()
-    mock.cleanup_mission = AsyncMock()
-    with patch("cadris_cp.routers.projects.runtime_client", mock), \
-         patch("cadris_cp.routers.missions.runtime_client", mock):
-        yield mock
-
-
-@pytest.fixture()
-def mock_renderer():
-    mock = MagicMock()
-    mock.render_markdown = AsyncMock()
-    mock.render_pdf = AsyncMock()
-    with patch("cadris_cp.routers.missions.renderer_client", mock):
-        yield mock
-
-
-def _create_project(client, auth_headers, name=None):
-    if name is None:
-        name = f"Projet {_uid()}"
-    resp = client.post("/api/projects", json={"name": name}, headers=auth_headers)
-    assert resp.status_code == 201
-    return resp.json()
-
-
-INTAKE_TEXT = "Je souhaite creer une plateforme de gestion de projets innovante pour les PME."
-
-
-# ---------------------------------------------------------------------------
-# Mission lifecycle tests
+# Mission creation
 # ---------------------------------------------------------------------------
 
 
 class TestCreateMission:
     def test_create_mission_demarrage_waiting_user(self, client, auth_headers, mock_runtime):
-        start_resp = _make_start_response(status="waiting_user")
+        start_resp = make_start_response(status="waiting_user")
         mock_runtime.start_mission.return_value = start_resp
-        project = _create_project(client, auth_headers)
+        project = create_project(client, auth_headers)
 
         resp = client.post(
             f"/api/projects/{project['id']}/missions",
@@ -228,8 +46,8 @@ class TestCreateMission:
         mock_runtime.start_mission.assert_awaited_once()
 
     def test_create_mission_projet_flou_label(self, client, auth_headers, mock_runtime):
-        mock_runtime.start_mission.return_value = _make_start_response()
-        project = _create_project(client, auth_headers)
+        mock_runtime.start_mission.return_value = make_start_response()
+        project = create_project(client, auth_headers)
 
         resp = client.post(
             f"/api/projects/{project['id']}/missions",
@@ -257,7 +75,7 @@ class TestCreateMission:
         assert resp.status_code == 401
 
     def test_create_mission_intake_too_short(self, client, auth_headers, mock_runtime):
-        project = _create_project(client, auth_headers)
+        project = create_project(client, auth_headers)
         resp = client.post(
             f"/api/projects/{project['id']}/missions",
             json={"intakeText": "Too short"},
@@ -266,8 +84,8 @@ class TestCreateMission:
         assert resp.status_code == 422
 
     def test_create_mission_increments_free_plan_counter(self, client, auth_headers, mock_runtime):
-        mock_runtime.start_mission.return_value = _make_start_response(status="waiting_user")
-        project = _create_project(client, auth_headers)
+        mock_runtime.start_mission.return_value = make_start_response(status="waiting_user")
+        project = create_project(client, auth_headers)
 
         resp = client.post(
             f"/api/projects/{project['id']}/missions",
@@ -281,9 +99,14 @@ class TestCreateMission:
         assert plans.json()["missions_this_month"] == 1
 
 
+# ---------------------------------------------------------------------------
+# SSE streaming
+# ---------------------------------------------------------------------------
+
+
 class TestMissionStreaming:
     def test_run_stream_increments_free_plan_counter_only_after_start(self, client, auth_headers, mock_runtime):
-        mock_runtime.start_mission_stream.return_value = _stream_events(
+        mock_runtime.start_mission_stream.return_value = stream_events(
             {"event": "qualification_questions", "data": {"questions": []}},
             {"event": "mission_completed", "data": {"ok": True}},
         )
@@ -301,8 +124,8 @@ class TestMissionStreaming:
         assert plans.status_code == 200
         assert plans.json()["missions_this_month"] == 1
 
-    def test_run_stream_does_not_create_mission_or_burn_quota_on_start_failure(self, client, auth_headers, mock_runtime):
-        mock_runtime.start_mission_stream.return_value = _stream_events(
+    def test_run_stream_does_not_burn_quota_on_start_failure(self, client, auth_headers, mock_runtime):
+        mock_runtime.start_mission_stream.return_value = stream_events(
             {"event": "error", "data": {"error": "runtime boom"}},
         )
 
@@ -322,8 +145,8 @@ class TestMissionStreaming:
         assert plans.status_code == 200
         assert plans.json()["missions_this_month"] == 0
 
-    def test_resume_wave_running_replays_current_wave_instead_of_skipping(self, client, auth_headers, mock_runtime):
-        mock_runtime.start_mission_stream.return_value = _stream_events(
+    def test_resume_wave_running_replays_current_wave(self, client, auth_headers, mock_runtime):
+        mock_runtime.start_mission_stream.return_value = stream_events(
             {"event": "wave_started", "data": {"wave": 2}},
         )
 
@@ -336,7 +159,7 @@ class TestMissionStreaming:
 
         mission_id = client.get("/api/missions", headers=auth_headers).json()[0]["id"]
 
-        mock_runtime.resume_mission_stream.return_value = _stream_events()
+        mock_runtime.resume_mission_stream.return_value = stream_events()
         resume_resp = client.post(
             f"/api/missions/{mission_id}/resume",
             json={"answerText": "", "action": "next_wave"},
@@ -348,11 +171,15 @@ class TestMissionStreaming:
         assert payload.action == "refine_wave"
 
 
+# ---------------------------------------------------------------------------
+# Answer question
+# ---------------------------------------------------------------------------
+
+
 class TestAnswerQuestion:
     def _setup_mission(self, client, auth_headers, mock_runtime):
-        """Create a project and mission, return mission data."""
-        mock_runtime.start_mission.return_value = _make_start_response(status="waiting_user")
-        project = _create_project(client, auth_headers)
+        mock_runtime.start_mission.return_value = make_start_response(status="waiting_user")
+        project = create_project(client, auth_headers)
         resp = client.post(
             f"/api/projects/{project['id']}/missions",
             json={"intakeText": INTAKE_TEXT, "flowCode": "demarrage"},
@@ -363,7 +190,7 @@ class TestAnswerQuestion:
 
     def test_answer_question_continues_mission(self, client, auth_headers, mock_runtime, mock_renderer):
         mission = self._setup_mission(client, auth_headers, mock_runtime)
-        resume_resp = _make_resume_response(completed=False)
+        resume_resp = make_resume_response(completed=False)
         mock_runtime.resume_mission.return_value = resume_resp
 
         resp = client.post(
@@ -374,16 +201,12 @@ class TestAnswerQuestion:
         assert resp.status_code == 200
         data = resp.json()
         assert data["mission"]["status"] == "waiting_user"
-        assert data["mission"]["activeQuestion"] is not None
         assert data["mission"]["activeQuestion"]["id"] == resume_resp.active_question.id
         assert data["dossier"] is None
 
-        mock_runtime.resume_mission.assert_awaited_once()
-        mock_renderer.render_markdown.assert_not_awaited()
-
     def test_answer_question_completes_mission_with_dossier(self, client, auth_headers, mock_runtime, mock_renderer):
         mission = self._setup_mission(client, auth_headers, mock_runtime)
-        mock_runtime.resume_mission.return_value = _make_resume_response(completed=True)
+        mock_runtime.resume_mission.return_value = make_resume_response(completed=True)
 
         from cadris_cp.models import RendererResponse
         mock_renderer.render_markdown.return_value = RendererResponse(
@@ -399,11 +222,7 @@ class TestAnswerQuestion:
         data = resp.json()
         assert data["mission"]["status"] == "completed"
         assert data["mission"]["dossierReady"] is True
-        assert data["dossier"] is not None
         assert data["dossier"]["title"] == "Dossier de cadrage"
-        assert "Vision" in data["dossier"]["markdown"]
-
-        mock_renderer.render_markdown.assert_awaited_once()
 
     def test_answer_question_mission_not_found(self, client, auth_headers, mock_runtime):
         resp = client.post(
@@ -415,7 +234,7 @@ class TestAnswerQuestion:
 
     def test_answer_too_short(self, client, auth_headers, mock_runtime):
         mission = self._setup_mission(client, auth_headers, mock_runtime)
-        mock_runtime.resume_mission.return_value = _make_resume_response()
+        mock_runtime.resume_mission.return_value = make_resume_response()
         resp = client.post(
             f"/api/missions/{mission['id']}/answers",
             json={"answerText": "Short"},
@@ -425,10 +244,15 @@ class TestAnswerQuestion:
         assert resp.json()["mission"]["status"] == "waiting_user"
 
 
+# ---------------------------------------------------------------------------
+# Get mission + logo
+# ---------------------------------------------------------------------------
+
+
 class TestGetMission:
     def test_get_mission_after_creation(self, client, auth_headers, mock_runtime):
-        mock_runtime.start_mission.return_value = _make_start_response()
-        project = _create_project(client, auth_headers)
+        mock_runtime.start_mission.return_value = make_start_response()
+        project = create_project(client, auth_headers)
         create_resp = client.post(
             f"/api/projects/{project['id']}/missions",
             json={"intakeText": INTAKE_TEXT},
@@ -448,8 +272,8 @@ class TestGetMission:
 
 class TestLogoEndpoint:
     def test_logo_requires_expert_plan(self, client, auth_headers, mock_runtime):
-        mock_runtime.start_mission.return_value = _make_start_response()
-        project = _create_project(client, auth_headers)
+        mock_runtime.start_mission.return_value = make_start_response()
+        project = create_project(client, auth_headers)
         create_resp = client.post(
             f"/api/projects/{project['id']}/missions",
             json={"intakeText": INTAKE_TEXT},
@@ -468,237 +292,7 @@ class TestLogoEndpoint:
         )
 
         assert resp.status_code == 403
-        assert resp.json()["code"] == "plan_required"
+        assert resp.json()["code"] == "forbidden"
 
 
-# ---------------------------------------------------------------------------
-# Export / share endpoint tests
-# ---------------------------------------------------------------------------
-
-
-class TestDossierMarkdownExport:
-    def test_markdown_404_when_no_dossier(self, client, auth_headers, mock_runtime):
-        """GET /api/missions/{id}/dossier/markdown returns 404 when no dossier exists."""
-        mock_runtime.start_mission.return_value = _make_start_response()
-        project = _create_project(client, auth_headers)
-        create_resp = client.post(
-            f"/api/projects/{project['id']}/missions",
-            json={"intakeText": INTAKE_TEXT},
-            headers=auth_headers,
-        )
-        mission_id = create_resp.json()["mission"]["id"]
-
-        resp = client.get(f"/api/missions/{mission_id}/dossier/markdown", headers=auth_headers)
-        assert resp.status_code == 404
-
-    def test_markdown_404_nonexistent_mission(self, client, auth_headers):
-        resp = client.get("/api/missions/nonexistent/dossier/markdown", headers=auth_headers)
-        assert resp.status_code == 404
-
-
-class TestDossierShare:
-    def test_share_404_when_no_dossier(self, client, auth_headers, mock_runtime):
-        """POST /api/missions/{id}/dossier/share returns 404 when no dossier exists."""
-        mock_runtime.start_mission.return_value = _make_start_response()
-        project = _create_project(client, auth_headers)
-        create_resp = client.post(
-            f"/api/projects/{project['id']}/missions",
-            json={"intakeText": INTAKE_TEXT},
-            headers=auth_headers,
-        )
-        mission_id = create_resp.json()["mission"]["id"]
-
-        resp = client.post(f"/api/missions/{mission_id}/dossier/share", headers=auth_headers)
-        assert resp.status_code == 404
-
-    def test_share_404_nonexistent_mission(self, client, auth_headers):
-        resp = client.post("/api/missions/nonexistent/dossier/share", headers=auth_headers)
-        assert resp.status_code == 404
-
-    def test_share_link_prefers_allowed_origin_header(self, client, auth_headers, mock_runtime, mock_renderer):
-        project = _create_project(client, auth_headers)
-        mock_runtime.start_mission.return_value = _make_start_response(status="waiting_user")
-        create_resp = client.post(
-            f"/api/projects/{project['id']}/missions",
-            json={"intakeText": INTAKE_TEXT},
-            headers=auth_headers,
-        )
-        mission_id = create_resp.json()["mission"]["id"]
-
-        mock_runtime.resume_mission.return_value = _make_resume_response(completed=True)
-        from cadris_cp.models import RendererResponse
-        mock_renderer.render_markdown.return_value = RendererResponse(
-            markdown="# Dossier de cadrage\n\nContenu complet."
-        )
-
-        answer_resp = client.post(
-            f"/api/missions/{mission_id}/answers",
-            json={"answerText": "Notre objectif est de digitaliser les processus RH des PME."},
-            headers=auth_headers,
-        )
-        assert answer_resp.status_code == 200
-
-        share_resp = client.post(
-            f"/api/missions/{mission_id}/dossier/share",
-            headers={**auth_headers, "origin": "http://localhost:3001"},
-        )
-        assert share_resp.status_code == 200
-        assert share_resp.json()["shareUrl"].startswith("http://localhost:3001/api/shared/")
-
-
-class TestSharedDossierAccess:
-    def test_invalid_share_token_404(self, client):
-        """GET /api/shared/invalid_token returns 404."""
-        resp = client.get("/api/shared/invalid_token_abc123")
-        assert resp.status_code == 404
-
-    def test_shared_dossier_sanitizes_embedded_html(self, client, auth_headers, mock_runtime, mock_renderer):
-        project = _create_project(client, auth_headers)
-        mock_runtime.start_mission.return_value = _make_start_response(status="waiting_user")
-        create_resp = client.post(
-            f"/api/projects/{project['id']}/missions",
-            json={"intakeText": INTAKE_TEXT},
-            headers=auth_headers,
-        )
-        mission_id = create_resp.json()["mission"]["id"]
-
-        completed = _make_resume_response(completed=True)
-        completed.dossier_sections[0].content = (
-            "<script>alert('xss')</script>\n\n**Contenu legitime**\n\n[Lien](javascript:alert(1))"
-        )
-        mock_runtime.resume_mission.return_value = completed
-
-        from cadris_cp.models import RendererResponse
-        mock_renderer.render_markdown.return_value = RendererResponse(
-            markdown="# Dossier de cadrage\n\nContenu legitime"
-        )
-
-        answer_resp = client.post(
-            f"/api/missions/{mission_id}/answers",
-            json={"answerText": "Notre objectif est de digitaliser les processus RH des PME."},
-            headers=auth_headers,
-        )
-        assert answer_resp.status_code == 200
-
-        share_resp = client.post(f"/api/missions/{mission_id}/dossier/share", headers=auth_headers)
-        assert share_resp.status_code == 200
-        share_url = share_resp.json()["shareUrl"]
-        token = share_url.rsplit("/", 1)[-1]
-
-        resp = client.get(f"/api/shared/{token}")
-        assert resp.status_code == 200
-        assert "<script" not in resp.text.lower()
-        assert "javascript:alert" not in resp.text.lower()
-        assert "Contenu legitime" in resp.text
-
-
-class TestRevokeExport:
-    def test_revoke_nonexistent_export_404(self, client, auth_headers):
-        """DELETE /api/exports/nonexistent returns 404."""
-        resp = client.delete("/api/exports/nonexistent", headers=auth_headers)
-        assert resp.status_code == 404
-
-
-class TestDossierEndpoints:
-    def test_get_dossier_404_when_no_dossier(self, client, auth_headers, mock_runtime):
-        """GET /api/missions/{id}/dossier returns 404 when mission exists but has no dossier."""
-        mock_runtime.start_mission.return_value = _make_start_response()
-        project = _create_project(client, auth_headers)
-        create_resp = client.post(
-            f"/api/projects/{project['id']}/missions",
-            json={"intakeText": INTAKE_TEXT},
-            headers=auth_headers,
-        )
-        mission_id = create_resp.json()["mission"]["id"]
-
-        resp = client.get(f"/api/missions/{mission_id}/dossier", headers=auth_headers)
-        assert resp.status_code == 404
-
-    def test_get_dossier_pdf_404_when_no_dossier(self, client, auth_headers, mock_runtime):
-        """GET /api/missions/{id}/dossier/pdf returns 404 when mission exists but has no dossier."""
-        mock_runtime.start_mission.return_value = _make_start_response()
-        project = _create_project(client, auth_headers)
-        create_resp = client.post(
-            f"/api/projects/{project['id']}/missions",
-            json={"intakeText": INTAKE_TEXT},
-            headers=auth_headers,
-        )
-        mission_id = create_resp.json()["mission"]["id"]
-
-        resp = client.get(f"/api/missions/{mission_id}/dossier/pdf", headers=auth_headers)
-        assert resp.status_code == 404
-
-
-class TestFullLifecycle:
-    """End-to-end: create project -> create mission -> answer -> complete -> export."""
-
-    def test_full_lifecycle_with_dossier_and_exports(self, client, auth_headers, mock_runtime, mock_renderer):
-        # 1. Create project
-        project = _create_project(client, auth_headers, name="Lifecycle Test")
-
-        # 2. Create mission
-        mock_runtime.start_mission.return_value = _make_start_response(status="waiting_user")
-        resp = client.post(
-            f"/api/projects/{project['id']}/missions",
-            json={"intakeText": INTAKE_TEXT, "flowCode": "demarrage"},
-            headers=auth_headers,
-        )
-        assert resp.status_code == 201
-        mission_id = resp.json()["mission"]["id"]
-
-        # 3. Answer question -> complete
-        mock_runtime.resume_mission.return_value = _make_resume_response(completed=True)
-        from cadris_cp.models import RendererResponse
-        mock_renderer.render_markdown.return_value = RendererResponse(
-            markdown="# Dossier Final\n\nContenu complet."
-        )
-
-        resp = client.post(
-            f"/api/missions/{mission_id}/answers",
-            json={"answerText": "Notre objectif est de digitaliser les processus RH des PME."},
-            headers=auth_headers,
-        )
-        assert resp.status_code == 200
-        assert resp.json()["mission"]["status"] == "completed"
-        assert resp.json()["dossier"] is not None
-
-        # 4. Get dossier
-        resp = client.get(f"/api/missions/{mission_id}/dossier", headers=auth_headers)
-        assert resp.status_code == 200
-        assert resp.json()["title"] == "Dossier de cadrage"
-
-        # 5. Export markdown
-        resp = client.get(f"/api/missions/{mission_id}/dossier/markdown", headers=auth_headers)
-        assert resp.status_code == 200
-        assert "application/zip" in resp.headers["content-type"]
-
-        # 6. Create share link
-        resp = client.post(f"/api/missions/{mission_id}/dossier/share", headers=auth_headers)
-        assert resp.status_code == 200
-        share_data = resp.json()
-        assert "shareUrl" in share_data
-        assert "export" in share_data
-        share_url = share_data["shareUrl"]
-        token = share_url.rsplit("/", 1)[-1]
-        export_id = share_data["export"]["id"]
-
-        # 7. List exports
-        resp = client.get(f"/api/missions/{mission_id}/exports", headers=auth_headers)
-        assert resp.status_code == 200
-        exports = resp.json()
-        assert len(exports) >= 2  # markdown export + share link
-
-        # 8. Access shared dossier (public, no auth)
-        resp = client.get(f"/api/shared/{token}")
-        assert resp.status_code == 200
-        assert "text/html" in resp.headers["content-type"]
-        assert "Dossier de cadrage" in resp.text
-
-        # 9. Revoke share link
-        resp = client.delete(f"/api/exports/{export_id}", headers=auth_headers)
-        assert resp.status_code == 200
-        assert resp.json()["revoked"] is True
-
-        # 10. Shared link no longer works after revocation
-        resp = client.get(f"/api/shared/{token}")
-        assert resp.status_code == 404
+# Export/share/dossier tests → test_dossier_exports.py

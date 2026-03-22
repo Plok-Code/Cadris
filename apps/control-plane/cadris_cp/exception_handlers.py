@@ -54,13 +54,19 @@ async def http_exception_handler(_: Request, error: HTTPException) -> JSONRespon
 
 
 async def validation_exception_handler(_: Request, error: RequestValidationError) -> JSONResponse:
+    # Summarize validation errors to field-level messages without exposing schema internals
+    field_errors = []
+    for err in error.errors():
+        loc = ".".join(str(part) for part in err.get("loc", []))
+        field_errors.append({"field": loc, "message": err.get("msg", "Invalid value")})
+
     envelope = ApiErrorEnvelope(
         code="validation_error",
         category="validation",
         retryable=False,
         message="Requete invalide.",
         request_id=get_request_id(),
-        details={"errors": error.errors()},
+        details={"errors": field_errors},
     )
     return JSONResponse(status_code=422, content=envelope.model_dump(mode="json", by_alias=True))
 

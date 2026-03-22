@@ -4,10 +4,24 @@ import { buildControlPlaneAuthHeaders } from "../../../../src/lib/control-plane-
 const CONTROL_PLANE_URL =
   process.env.CONTROL_PLANE_URL ?? "http://127.0.0.1:8000";
 
+/** Allowed path prefixes — requests outside this list are rejected with 403. */
+const ALLOWED_PATH_PREFIXES = [
+  "/api/projects",
+  "/api/missions",
+  "/api/billing",
+  "/api/shared",
+  "/api/users",
+];
+
+/** Maximum request body size: 10 MB. */
+const MAX_BODY_BYTES = 10 * 1024 * 1024;
+
 /**
  * API proxy: forwards authenticated requests from the Next.js frontend
  * to the FastAPI control-plane.
  *
+ * - Validates the target path against an allowlist
+ * - Enforces a 10 MB body size limit
  * - Reads the NextAuth session to get user id/email
  * - Adds x-cadris-user-id and x-cadris-user-email headers
  * - Strips cookies before forwarding
@@ -35,6 +49,27 @@ async function proxyToControlPlane(req: Request): Promise<Response> {
   // Rewrite path: /api/cadris/api/missions/run → /api/missions/run
   const url = new URL(req.url);
   const proxyPath = url.pathname.replace(/^\/api\/cadris/, "");
+
+  // --- Path allowlist: reject anything outside known prefixes ---
+  const isAllowed = ALLOWED_PATH_PREFIXES.some((prefix) =>
+    proxyPath.startsWith(prefix)
+  );
+  if (!isAllowed) {
+    return Response.json(
+      { error: "forbidden", message: "Chemin non autorisé." },
+      { status: 403 }
+    );
+  }
+
+  // --- Body size limit ---
+  const contentLength = req.headers.get("content-length");
+  if (contentLength && parseInt(contentLength, 10) > MAX_BODY_BYTES) {
+    return Response.json(
+      { error: "payload_too_large", message: "Le corps de la requête dépasse 10 Mo." },
+      { status: 413 }
+    );
+  }
+
   const targetUrl = `${CONTROL_PLANE_URL}${proxyPath}${url.search}`;
 
   // Build headers: keep original but inject auth and strip cookies
@@ -68,9 +103,16 @@ async function proxyToControlPlane(req: Request): Promise<Response> {
   });
 
   try {
+    // Timeout: 30s for regular requests, 10min for SSE streams
+    const isSSE = req.headers.get("accept")?.includes("text/event-stream");
+    const timeoutMs = isSSE ? 600_000 : 30_000;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
     const fetchInit: RequestInit & { duplex?: string } = {
       method: req.method,
       headers,
+      signal: controller.signal,
     };
 
     // Forward body for POST/PUT/PATCH/DELETE
@@ -79,6 +121,7 @@ async function proxyToControlPlane(req: Request): Promise<Response> {
     }
 
     const upstream = await fetch(targetUrl, fetchInit);
+    clearTimeout(timer);
 
     // Build response headers (strip hop-by-hop)
     const responseHeaders = new Headers();

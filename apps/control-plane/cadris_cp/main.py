@@ -67,8 +67,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["authorization", "content-type", "x-cadris-user-id", "x-cadris-user-email", "x-cadris-timestamp", "x-cadris-signature", "x-cadris-body-hash"],
 )
 
 

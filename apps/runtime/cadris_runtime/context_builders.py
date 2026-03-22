@@ -47,9 +47,11 @@ DOC_ID_TO_ZIP_PATH = {
 def _build_context(spec: AgentSpec, memory: MissionMemory) -> str:
     """Build the context string an agent sees from other agents' work.
 
-    MAX_CHARS_PER_DOC controls context window usage per doc.
+    Context chars per doc are aligned with prompt targets:
+    - free plan: 1500 chars (~250 words) — prompts target 300-500 words
+    - paid plans: 2500 chars (~400 words) — prompts target 600-1200 words
     """
-    max_chars = 1200
+    max_chars = 1500 if memory.plan == "free" else 2500
 
     other_docs = memory.get_documents_for_agent(spec.code)
     if not other_docs:

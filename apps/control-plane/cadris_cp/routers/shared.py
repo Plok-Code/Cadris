@@ -73,8 +73,14 @@ async def create_share_link(
 @router.get("/api/shared/{token}")
 async def get_shared_dossier(
     token: str,
+    request: Request,
     session: Session = Depends(get_session),
 ):
+    # Rate limit by IP to prevent brute-force of share tokens
+    from ..rate_limit import check_rate_limit
+    client_ip = request.client.host if request.client else "unknown"
+    if not check_rate_limit(f"shared:{client_ip}", max_requests=10, window_seconds=60):
+        raise AppError.validation("rate_limited", "Trop de tentatives. Reessayez dans une minute.")
     repository = ControlPlaneRepository(session)
     token_hash = _hash_token(token)
     export_record = repository.get_export_by_token_hash(token_hash)

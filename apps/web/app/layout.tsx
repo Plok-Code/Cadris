@@ -3,6 +3,9 @@ import { IBM_Plex_Mono, Public_Sans } from "next/font/google";
 import "./globals.css";
 import SessionWrapper from "./components/SessionWrapper";
 import UserMenu from "./components/UserMenu";
+import { validateEnv } from "../src/lib/envCheck";
+
+validateEnv();
 
 const publicSans = Public_Sans({
   subsets: ["latin"],

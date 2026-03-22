@@ -11,6 +11,7 @@ Plans: free (default), pro, team
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 
 import stripe
 from sqlalchemy.orm import Session
@@ -82,6 +83,27 @@ def create_portal_session(user: UserRecord, db: Session) -> str:
     return portal.url
 
 
+# In-memory set of recently processed Stripe event IDs for idempotency.
+# Stripe may re-deliver events; this prevents double-processing.
+# Bounded to prevent unbounded growth — oldest entries evicted via FIFO.
+_processed_events: set[str] = set()
+_processed_events_order: list[str] = []
+_MAX_PROCESSED_EVENTS = 1000
+
+
+def _mark_event_processed(event_id: str) -> bool:
+    """Return True if event was already processed, False otherwise."""
+    if event_id in _processed_events:
+        return True
+    _processed_events.add(event_id)
+    _processed_events_order.append(event_id)
+    # Evict oldest if over capacity
+    while len(_processed_events_order) > _MAX_PROCESSED_EVENTS:
+        oldest = _processed_events_order.pop(0)
+        _processed_events.discard(oldest)
+    return False
+
+
 def handle_webhook(payload: bytes, sig_header: str, db: Session) -> dict:
     """Process a Stripe webhook event.
 
@@ -90,6 +112,8 @@ def handle_webhook(payload: bytes, sig_header: str, db: Session) -> dict:
     - customer.subscription.updated → update plan
     - customer.subscription.deleted → downgrade to free
     - invoice.payment_failed → log warning
+
+    Idempotent: duplicate events (same event.id) are safely skipped.
     """
     if not settings.stripe_webhook_secret:
         raise ValueError("STRIPE_WEBHOOK_SECRET not configured")
@@ -98,9 +122,14 @@ def handle_webhook(payload: bytes, sig_header: str, db: Session) -> dict:
         payload, sig_header, settings.stripe_webhook_secret
     )
 
+    # Idempotency check — Stripe may re-deliver events
+    if _mark_event_processed(event.id):
+        logger.info("stripe webhook: skipping duplicate event %s", event.id)
+        return {"event_type": event.type, "handled": False, "reason": "duplicate"}
+
     event_type = event.type
     data = event.data.object
-    logger.info("stripe webhook: %s", event_type)
+    logger.info("stripe webhook: %s (id=%s)", event_type, event.id)
 
     if event_type == "checkout.session.completed":
         _handle_checkout_completed(data, db)
@@ -132,7 +161,8 @@ def _plan_from_price(price_id: str) -> str:
     for plan_name, plan_info in PLANS.items():
         if plan_info["price_id"] == price_id:
             return plan_name
-    return "pro"  # default fallback for unknown prices
+    logger.warning("Unknown Stripe price_id '%s' — defaulting to free plan", price_id)
+    return "free"
 
 
 def _handle_checkout_completed(session_data, db: Session):
@@ -207,47 +237,8 @@ def _handle_subscription_deleted(sub_data, db: Session):
     db.commit()
 
 
-def check_mission_limit(user: UserRecord, db: Session | None = None) -> bool:
-    """Check if user can create a new mission based on their plan.
-
-    Also resets the monthly counter if we crossed into a new month,
-    so the check is always accurate.
-
-    Returns True if allowed, False if limit reached.
-    """
-    from datetime import datetime, UTC
-    now = datetime.now(UTC)
-
-    # Reset counter if we're in a new month (fix: do it at check time, not only at increment)
-    if user.month_reset_at:
-        try:
-            last_reset = datetime.fromisoformat(user.month_reset_at)
-            if now.month != last_reset.month or now.year != last_reset.year:
-                user.missions_this_month = 0
-                user.month_reset_at = now.isoformat()
-                if db:
-                    db.commit()
-        except (ValueError, TypeError):
-            user.missions_this_month = 0
-            user.month_reset_at = now.isoformat()
-            if db:
-                db.commit()
-
-    plan_info = PLANS.get(user.plan, PLANS["free"])
-    limit = plan_info["missions_per_month"]
-
-    if limit == -1:  # unlimited
-        return True
-
-    return user.missions_this_month < limit
-
-
-def increment_mission_count(user: UserRecord, db: Session) -> None:
-    """Increment the user's monthly mission counter."""
-    from datetime import datetime, UTC
-    now = datetime.now(UTC)
-
-    # Reset counter if we're in a new month
+def _reset_monthly_counter_if_needed(user: UserRecord, now: datetime) -> None:
+    """Reset the monthly mission counter if we crossed into a new calendar month."""
     if user.month_reset_at:
         try:
             last_reset = datetime.fromisoformat(user.month_reset_at)
@@ -260,5 +251,85 @@ def increment_mission_count(user: UserRecord, db: Session) -> None:
     else:
         user.month_reset_at = now.isoformat()
 
+
+def check_mission_limit(user: UserRecord, db: Session | None = None) -> bool:
+    """Check if user can create a new mission based on their plan.
+
+    Also resets the monthly counter if we crossed into a new month,
+    so the check is always accurate.
+
+    Returns True if allowed, False if limit reached.
+    """
+    now = datetime.now(UTC)
+    _reset_monthly_counter_if_needed(user, now)
+    if db:
+        db.commit()
+
+    plan_info = PLANS.get(user.plan, PLANS["free"])
+    limit = plan_info["missions_per_month"]
+
+    if limit == -1:  # unlimited
+        return True
+
+    return user.missions_this_month < limit
+
+
+def check_and_increment_mission(user: UserRecord, db: Session) -> bool:
+    """Atomically check the mission limit AND increment in one operation.
+
+    Uses SELECT FOR UPDATE (Postgres) to lock the user row, preventing
+    two concurrent requests from both passing the limit check before
+    either increments.  On SQLite (dev/test), the GIL + single-writer
+    lock provides equivalent serialisation, so we skip the FOR UPDATE
+    and operate directly on the ORM object.
+
+    Returns True if the mission was allowed (counter incremented),
+    False if the limit was reached (counter unchanged).
+    """
+    # Try row-level lock on Postgres; fall back to direct ORM on SQLite/mocks.
+    # We check isinstance() because mock sessions return MagicMock, not UserRecord.
+    locked_user = user
+    try:
+        from sqlalchemy import select
+        from .records import UserRecord as UR
+
+        stmt = select(UR).where(UR.id == user.id).with_for_update()
+        result = db.execute(stmt).scalar_one_or_none()
+        if isinstance(result, UR):
+            locked_user = result
+    except Exception:  # noqa: BLE001 — SQLite doesn't support FOR UPDATE; mocks may fail
+        pass
+
+    now = datetime.now(UTC)
+    _reset_monthly_counter_if_needed(locked_user, now)
+
+    plan_info = PLANS.get(locked_user.plan, PLANS["free"])
+    limit = plan_info["missions_per_month"]
+
+    if limit == -1:  # unlimited
+        locked_user.missions_this_month += 1
+        db.commit()
+        if locked_user is not user:
+            user.missions_this_month = locked_user.missions_this_month
+        return True
+
+    if locked_user.missions_this_month >= limit:
+        return False
+
+    locked_user.missions_this_month += 1
+    db.commit()
+    if locked_user is not user:
+        user.missions_this_month = locked_user.missions_this_month
+    return True
+
+
+def increment_mission_count(user: UserRecord, db: Session) -> None:
+    """Increment the user's monthly mission counter.
+
+    DEPRECATED: prefer check_and_increment_mission() for atomic check+increment.
+    Kept for backward compatibility.
+    """
+    now = datetime.now(UTC)
+    _reset_monthly_counter_if_needed(user, now)
     user.missions_this_month += 1
     db.commit()

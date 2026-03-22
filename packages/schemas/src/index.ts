@@ -1,3 +1,6 @@
+/** Sentinel value sent when user skips a qualification question. */
+export const SKIP_ANSWER = "je_sais_pas" as const;
+
 export type FlowCode = "demarrage" | "projet_flou" | "pivot";
 
 export type MissionStatus = "draft" | "in_progress" | "waiting_user" | "completed";

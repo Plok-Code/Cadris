@@ -23,7 +23,7 @@ apps/control-plane/data/uploads/
 .env.local
 deploy/gcr/.env.gcr
 deploy/.env.prod
-package-lock.json
+# package-lock.json must be committed for deterministic CI builds
 .claude/worktrees/
 .claude/settings.local.json
 *.egg-info/

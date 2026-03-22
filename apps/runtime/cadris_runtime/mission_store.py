@@ -55,7 +55,12 @@ def _utc_now() -> datetime:
 
 
 def _snapshot_path(mission_id: str) -> Path:
-    return _snapshot_dir / f"{mission_id}.json"
+    _validate_mission_id(mission_id)
+    path = _snapshot_dir / f"{mission_id}.json"
+    # Defense-in-depth: ensure resolved path stays inside snapshot dir
+    if not path.resolve().is_relative_to(_snapshot_dir.resolve()):
+        raise ValueError(f"Path traversal detected for mission_id: {mission_id!r}")
+    return path
 
 
 def _serialize_memory(memory: MissionMemory) -> dict[str, object]:
@@ -286,7 +291,10 @@ def remove(mission_id: str) -> None:
 
 
 def evict_stale() -> int:
-    """Remove entries older than TTL_SECONDS from cache and persistence."""
+    """Remove entries older than TTL_SECONDS from cache and persistence.
+
+    Also cleans up _locks for evicted missions to prevent unbounded growth.
+    """
     now = _utc_now()
     stale_ids = [
         mission_id
@@ -295,6 +303,8 @@ def evict_stale() -> int:
     ]
     for mission_id in stale_ids:
         remove(mission_id)
+        # Clean up lock entry to prevent unbounded _locks growth
+        _locks.pop(mission_id, None)
 
     if _engine is not None:
         cutoff = now - timedelta(seconds=TTL_SECONDS)
@@ -319,28 +329,52 @@ def evict_stale() -> int:
 _locks: dict[str, asyncio.Lock] = {}
 
 
+_VALID_MISSION_ID = __import__("re").compile(r"^[a-zA-Z0-9_-]{1,64}$")
+
+
+def _validate_mission_id(mission_id: str) -> None:
+    """Reject mission IDs that could cause path traversal or other injection."""
+    if not _VALID_MISSION_ID.match(mission_id):
+        raise ValueError(f"Invalid mission_id format: {mission_id!r}")
+
+
 def _get_lock(mission_id: str) -> asyncio.Lock:
-    """Return (or create) an asyncio.Lock for the given mission_id."""
-    if mission_id not in _locks:
-        _locks[mission_id] = asyncio.Lock()
-    return _locks[mission_id]
+    """Return (or create) an asyncio.Lock for the given mission_id.
+
+    Uses dict.setdefault() which is atomic in CPython's single-threaded
+    asyncio event loop — no TOCTOU race between check and create.
+    """
+    return _locks.setdefault(mission_id, asyncio.Lock())
 
 
 async def aget(mission_id: str) -> MissionMemory | None:
-    """Async version of get() with per-mission locking."""
+    """Async version of get() with per-mission locking.
+
+    Wraps sync I/O in asyncio.to_thread() to avoid blocking the event loop.
+    """
+    _validate_mission_id(mission_id)
     async with _get_lock(mission_id):
-        return get(mission_id)
+        return await asyncio.to_thread(get, mission_id)
 
 
 async def aput(memory: MissionMemory) -> None:
-    """Async version of put() with per-mission locking."""
+    """Async version of put() with per-mission locking.
+
+    Wraps sync I/O in asyncio.to_thread() to avoid blocking the event loop.
+    """
+    _validate_mission_id(memory.mission_id)
     async with _get_lock(memory.mission_id):
-        put(memory)
+        await asyncio.to_thread(put, memory)
 
 
 async def aremove(mission_id: str) -> None:
-    """Async version of remove() with per-mission locking."""
+    """Async version of remove() with per-mission locking.
+
+    Wraps sync I/O in asyncio.to_thread() to avoid blocking the event loop.
+    """
+    _validate_mission_id(mission_id)
     lock = _get_lock(mission_id)
     async with lock:
-        remove(mission_id)
+        await asyncio.to_thread(remove, mission_id)
+    # Clean up lock to prevent unbounded growth
     _locks.pop(mission_id, None)

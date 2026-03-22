@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from sqlalchemy import Boolean, Float, ForeignKey, Integer, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-
-def utc_now() -> str:
-    return datetime.now(UTC).isoformat()
+from .models.base import utc_now  # single source of truth
 
 
 class Base(DeclarativeBase):

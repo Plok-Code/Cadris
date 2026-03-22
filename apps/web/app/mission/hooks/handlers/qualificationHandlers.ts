@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { RuntimeEvent } from "@cadris/schemas";
+import { SKIP_ANSWER, type RuntimeEvent } from "@cadris/schemas";
 import type { CadrisApiClient } from "@cadris/client-sdk";
 import type {
   Phase,
@@ -36,12 +36,12 @@ export function createHandleQualAnswer(deps: QualificationHandlerDeps) {
       setChatMessages,
     } = deps;
 
-    const answer = qualAnswer.trim() || "je_sais_pas";
+    const answer = qualAnswer.trim() || SKIP_ANSWER;
     const currentQ = qualQuestions[qualIndex];
 
     setChatMessages((prev) => [
       ...prev,
-      { role: "user", text: answer === "je_sais_pas" ? "Je ne sais pas" : answer },
+      { role: "user", text: answer === SKIP_ANSWER ? "Je ne sais pas" : answer },
     ]);
 
     setQualAnswers((prev) => ({ ...prev, [currentQ.question]: answer }));

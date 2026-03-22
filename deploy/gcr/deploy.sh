@@ -22,6 +22,12 @@
 # ─────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
+# TODO: Migrate all secrets to GCP Secret Manager for production.
+# Currently secrets are passed as env vars; this is acceptable for initial
+# deployment but should be replaced with secret references:
+#   --set-secrets="OPENAI_API_KEY=openai-key:latest,..."
+# See: https://cloud.google.com/run/docs/configuring/secrets
+
 # ── Load .env.gcr if it exists ─────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
@@ -59,12 +65,26 @@ if [ -z "${PROXY_SECRET}" ]; then
   exit 1
 fi
 if [ "${AUTH_SECRET}" = "${PROXY_SECRET}" ]; then
-  echo "⚠️  WARNING: NEXTAUTH_SECRET and TRUSTED_PROXY_SECRET are identical. Use different secrets!" >&2
+  echo "❌ NEXTAUTH_SECRET and TRUSTED_PROXY_SECRET MUST be different secrets!" >&2
+  exit 1
+fi
+
+# Internal secret for runtime service-to-service auth
+INTERNAL_SECRET="${CADRIS_INTERNAL_SECRET:-}"
+if [ -z "${INTERNAL_SECRET}" ]; then
+  echo "❌ Set CADRIS_INTERNAL_SECRET in .env.gcr (python -c 'import secrets;print(secrets.token_hex(32))')" >&2
+  exit 1
 fi
 GOOGLE_CID="${GOOGLE_CLIENT_ID:?❌ Set GOOGLE_CLIENT_ID in .env.gcr}"
 GOOGLE_CSECRET="${GOOGLE_CLIENT_SECRET:?❌ Set GOOGLE_CLIENT_SECRET in .env.gcr}"
 GITHUB_CID="${GITHUB_CLIENT_ID:?❌ Set GITHUB_CLIENT_ID in .env.gcr}"
 GITHUB_CSECRET="${GITHUB_CLIENT_SECRET:?❌ Set GITHUB_CLIENT_SECRET in .env.gcr}"
+
+# Together AI (free plan)
+TOGETHER_API_KEY="${TOGETHER_API_KEY:-}"
+if [ -z "${TOGETHER_API_KEY}" ]; then
+  echo "Warning: TOGETHER_API_KEY not set — free plan will use fallback model" >&2
+fi
 
 # Email
 RESEND_KEY="${RESEND_API_KEY:-}"
@@ -78,6 +98,10 @@ STRIPE_EXPERT="${STRIPE_PRICE_EXPERT:-${STRIPE_PRICE_TEAM:-}}"
 
 # Artifact Registry (replaces deprecated gcr.io)
 AR_REPO="${REGION}-docker.pkg.dev/${PROJECT}/cadris"
+
+# Image tagging: use git SHA + timestamp for rollback capability
+GIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+IMAGE_TAG="${GIT_SHA}-$(date +%Y%m%d%H%M%S)"
 
 echo ""
 echo "╔══════════════════════════════════════╗"
@@ -128,29 +152,38 @@ fi
 echo "[3/7] Building Docker images (this takes 3-5 minutes)..."
 
 # Control Plane (self-contained context)
-echo "  📦 Building control-plane..."
+echo "  Building control-plane... (tag: ${IMAGE_TAG})"
 gcloud builds submit "${ROOT_DIR}/apps/control-plane" \
-  --tag "${AR_REPO}/control-plane" \
+  --tag "${AR_REPO}/control-plane:${IMAGE_TAG}" \
   --project="${PROJECT}" --quiet
+# Also tag as latest for the deploy step
+gcloud artifacts docker tags add \
+  "${AR_REPO}/control-plane:${IMAGE_TAG}" \
+  "${AR_REPO}/control-plane:latest" \
+  --project="${PROJECT}" --quiet 2>/dev/null || true
 
 # Renderer (self-contained context)
-echo "  📦 Building renderer..."
+echo "  Building renderer... (tag: ${IMAGE_TAG})"
 gcloud builds submit "${ROOT_DIR}/apps/renderer" \
-  --tag "${AR_REPO}/renderer" \
+  --tag "${AR_REPO}/renderer:${IMAGE_TAG}" \
   --project="${PROJECT}" --quiet
+gcloud artifacts docker tags add \
+  "${AR_REPO}/renderer:${IMAGE_TAG}" \
+  "${AR_REPO}/renderer:latest" \
+  --project="${PROJECT}" --quiet 2>/dev/null || true
 
 # Runtime (needs root context for packages/prompts)
-echo "  📦 Building runtime..."
+echo "  Building runtime... (tag: ${IMAGE_TAG})"
 gcloud builds submit "${ROOT_DIR}" \
   --config="${ROOT_DIR}/deploy/gcr/cloudbuild-runtime.yaml" \
-  --substitutions="_REGION=${REGION}" \
+  --substitutions="_REGION=${REGION},_IMAGE_TAG=${IMAGE_TAG}" \
   --project="${PROJECT}" --quiet
 
 # Web (needs root context for monorepo workspace)
-echo "  📦 Building web..."
+echo "  Building web... (tag: ${IMAGE_TAG})"
 gcloud builds submit "${ROOT_DIR}" \
   --config="${ROOT_DIR}/deploy/gcr/cloudbuild-web.yaml" \
-  --substitutions="_REGION=${REGION}" \
+  --substitutions="_REGION=${REGION},_IMAGE_TAG=${IMAGE_TAG}" \
   --project="${PROJECT}" --quiet
 
 echo "  ✅ All images built"
@@ -158,7 +191,7 @@ echo "  ✅ All images built"
 # ── 4. Deploy renderer (internal) ─────────────────────────────────
 echo "[4/7] Deploying renderer..."
 gcloud run deploy cadris-renderer \
-  --image "${AR_REPO}/renderer" \
+  --image "${AR_REPO}/renderer:${IMAGE_TAG}" \
   --region "${REGION}" \
   --project="${PROJECT}" \
   --platform managed \
@@ -178,7 +211,7 @@ echo "  ✅ Renderer: ${RENDERER_URL}"
 # ── 5. Deploy runtime (internal) ──────────────────────────────────
 echo "[5/7] Deploying runtime..."
 gcloud run deploy cadris-runtime \
-  --image "${AR_REPO}/runtime" \
+  --image "${AR_REPO}/runtime:${IMAGE_TAG}" \
   --region "${REGION}" \
   --project="${PROJECT}" \
   --platform managed \
@@ -192,7 +225,10 @@ gcloud run deploy cadris-runtime \
 CADRIS_RUNTIME_PROVIDER=${RUNTIME_PROVIDER},\
 CADRIS_OPENAI_MODEL=${OPENAI_MODEL},\
 CADRIS_RUNTIME_STATE_DB_URL=${DB_URL},\
-OPENAI_API_KEY=${OPENAI_KEY}" \
+OPENAI_API_KEY=${OPENAI_KEY},\
+TOGETHER_API_KEY=${TOGETHER_API_KEY},\
+CADRIS_INTERNAL_SECRET=${INTERNAL_SECRET},\
+CADRIS_MODEL_PROFILE=prod" \
   --quiet
 
 RUNTIME_URL="$(gcloud run services describe cadris-runtime \
@@ -203,7 +239,7 @@ echo "  ✅ Runtime: ${RUNTIME_URL}"
 # ── 6. Deploy control-plane (public) ──────────────────────────────
 echo "[6/7] Deploying control-plane..."
 gcloud run deploy cadris-control-plane \
-  --image "${AR_REPO}/control-plane" \
+  --image "${AR_REPO}/control-plane:${IMAGE_TAG}" \
   --region "${REGION}" \
   --project="${PROJECT}" \
   --platform managed \
@@ -221,6 +257,7 @@ CONTROL_PLANE_ALLOWED_ORIGINS=https://PLACEHOLDER,\
 CONTROL_PLANE_S3_BUCKET=${GCS_BUCKET},\
 CONTROL_PLANE_S3_ENDPOINT=https://storage.googleapis.com,\
 CONTROL_PLANE_TRUSTED_PROXY_SECRET=${PROXY_SECRET},\
+CADRIS_INTERNAL_SECRET=${INTERNAL_SECRET},\
 OPENAI_API_KEY=${OPENAI_KEY},\
 RESEND_API_KEY=${RESEND_KEY},\
 STRIPE_SECRET_KEY=${STRIPE_SK},\
@@ -240,7 +277,7 @@ echo "  ✅ Control-plane: ${CP_URL}"
 # ── 7. Deploy web (public) ────────────────────────────────────────
 echo "[7/7] Deploying web..."
 gcloud run deploy cadris-web \
-  --image "${AR_REPO}/web" \
+  --image "${AR_REPO}/web:${IMAGE_TAG}" \
   --region "${REGION}" \
   --project="${PROJECT}" \
   --platform managed \
@@ -254,8 +291,6 @@ gcloud run deploy cadris-web \
 CONTROL_PLANE_URL=${CP_URL},\
 NEXTAUTH_SECRET=${AUTH_SECRET},\
 CONTROL_PLANE_TRUSTED_PROXY_SECRET=${PROXY_SECRET},\
-WEB_AUTH_STORAGE_DRIVER=fs,\
-WEB_AUTH_STORAGE_DIR=/tmp/cadris-auth,\
 GOOGLE_CLIENT_ID=${GOOGLE_CID},\
 GOOGLE_CLIENT_SECRET=${GOOGLE_CSECRET},\
 GITHUB_CLIENT_ID=${GITHUB_CID},\

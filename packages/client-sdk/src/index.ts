@@ -242,6 +242,13 @@ export class CadrisApiClient {
     }
   }
 
+  /**
+   * SSE read timeout in milliseconds. If no data is received within this
+   * window, the stream is considered stale and an error event is emitted.
+   * Default: 5 minutes (agents can take several minutes per wave).
+   */
+  private static readonly SSE_READ_TIMEOUT_MS = 5 * 60 * 1000;
+
   private async consumeSSE(
     response: globalThis.Response,
     onEvent: (event: RuntimeEvent) => void,
@@ -254,7 +261,22 @@ export class CadrisApiClient {
     let currentEventType = "message";
 
     while (true) {
-      const { done, value } = await reader.read();
+      // Apply read timeout to detect stale connections
+      const readPromise = reader.read();
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("SSE read timeout")), CadrisApiClient.SSE_READ_TIMEOUT_MS)
+      );
+
+      let result: ReadableStreamReadResult<Uint8Array>;
+      try {
+        result = await Promise.race([readPromise, timeoutPromise]);
+      } catch (err) {
+        onEvent({ event: "error" as RuntimeEvent["event"], data: { error: "Connexion perdue (timeout). Rechargez la page." } });
+        reader.cancel().catch(() => {});
+        return;
+      }
+
+      const { done, value } = result;
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
@@ -268,8 +290,12 @@ export class CadrisApiClient {
           try {
             const data = JSON.parse(line.slice(6));
             onEvent({ event: currentEventType as RuntimeEvent["event"], data });
-          } catch {
-            // skip invalid JSON
+          } catch (parseErr) {
+            // Emit parse error instead of silently dropping — aids debugging
+            onEvent({
+              event: "error" as RuntimeEvent["event"],
+              data: { error: "Invalid JSON in SSE event", raw: line.slice(6, 200) },
+            });
           }
           currentEventType = "message";
         }

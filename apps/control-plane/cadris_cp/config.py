@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Annotated
+
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
+from pydantic import BeforeValidator, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Load local .env BEFORE any other module import, so that database.py
 # (and others) can read env vars set in .env.
@@ -15,43 +18,50 @@ if os.getenv("CADRIS_LOAD_DOTENV", "1") != "0":
 from .database import DATABASE_URL  # noqa: E402
 
 
-class Settings(BaseModel):
-    runtime_url: str = Field(default=os.getenv("CONTROL_PLANE_RUNTIME_URL", "http://127.0.0.1:8001"))
-    renderer_url: str = Field(default=os.getenv("CONTROL_PLANE_RENDERER_URL", "http://127.0.0.1:8002"))
-    trusted_proxy_secret: str | None = Field(default=os.getenv("CONTROL_PLANE_TRUSTED_PROXY_SECRET", None))
-    allow_unsigned_requests: bool = Field(
-        default=os.getenv("CADRIS_ALLOW_UNSIGNED_REQUESTS", "").lower() in ("1", "true", "yes")
+def _parse_origins(v: str | list[str]) -> list[str]:
+    if isinstance(v, list):
+        return v
+    return [s.strip() for s in v.split(",") if s.strip()]
+
+
+def _default_uploads_dir() -> Path:
+    return Path(__file__).resolve().parent.parent / "data" / "uploads"
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="",  # no prefix — env var names are explicit per field
+        env_file=None,  # already loaded above via load_dotenv
+        extra="ignore",
     )
-    trusted_proxy_max_skew_seconds: int = Field(
-        default=int(os.getenv("CONTROL_PLANE_TRUSTED_PROXY_MAX_SKEW_SECONDS", "60"))
-    )
-    allowed_origins: list[str] = Field(
-        default_factory=lambda: os.getenv(
-            "CONTROL_PLANE_ALLOWED_ORIGINS",
-            "http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:3001,http://localhost:3001",
-        ).split(",")
+
+    runtime_url: str = Field(default="http://127.0.0.1:8001", alias="CONTROL_PLANE_RUNTIME_URL")
+    renderer_url: str = Field(default="http://127.0.0.1:8002", alias="CONTROL_PLANE_RENDERER_URL")
+    trusted_proxy_secret: str | None = Field(default=None, alias="CONTROL_PLANE_TRUSTED_PROXY_SECRET")
+    allow_unsigned_requests: bool = Field(default=False, alias="CADRIS_ALLOW_UNSIGNED_REQUESTS")
+    trusted_proxy_max_skew_seconds: int = Field(default=60, alias="CONTROL_PLANE_TRUSTED_PROXY_MAX_SKEW_SECONDS")
+
+    allowed_origins: Annotated[list[str], BeforeValidator(_parse_origins)] = Field(
+        default="http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:3001,http://localhost:3001",
+        alias="CONTROL_PLANE_ALLOWED_ORIGINS",
     )
     database_url: str = Field(default=DATABASE_URL)
-    uploads_dir: Path = Field(
-        default=Path(os.getenv("CONTROL_PLANE_UPLOADS_DIR", Path(__file__).resolve().parent.parent / "data" / "uploads"))
-    )
-    max_upload_bytes: int = Field(default=int(os.getenv("CONTROL_PLANE_MAX_UPLOAD_BYTES", "5242880")))
-    s3_bucket: str | None = Field(default=os.getenv("CONTROL_PLANE_S3_BUCKET", None))
-    s3_endpoint: str | None = Field(default=os.getenv("CONTROL_PLANE_S3_ENDPOINT", None))
-    openai_api_key: str | None = Field(default=os.getenv("OPENAI_API_KEY", None))
+    uploads_dir: Path = Field(default_factory=_default_uploads_dir, alias="CONTROL_PLANE_UPLOADS_DIR")
+    max_upload_bytes: int = Field(default=5_242_880, alias="CONTROL_PLANE_MAX_UPLOAD_BYTES")
+    s3_bucket: str | None = Field(default=None, alias="CONTROL_PLANE_S3_BUCKET")
+    s3_endpoint: str | None = Field(default=None, alias="CONTROL_PLANE_S3_ENDPOINT")
+    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
 
     # Stripe billing
-    stripe_secret_key: str | None = Field(default=os.getenv("STRIPE_SECRET_KEY", None))
-    stripe_webhook_secret: str | None = Field(default=os.getenv("STRIPE_WEBHOOK_SECRET", None))
-    stripe_price_starter: str | None = Field(default=os.getenv("STRIPE_PRICE_STARTER", None))
-    stripe_price_pro: str | None = Field(default=os.getenv("STRIPE_PRICE_PRO", None))
-    stripe_price_expert: str | None = Field(
-        default=os.getenv("STRIPE_PRICE_EXPERT") or os.getenv("STRIPE_PRICE_TEAM")
-    )
-    frontend_url: str = Field(default=os.getenv("FRONTEND_URL", "http://localhost:3000"))
+    stripe_secret_key: str | None = Field(default=None, alias="STRIPE_SECRET_KEY")
+    stripe_webhook_secret: str | None = Field(default=None, alias="STRIPE_WEBHOOK_SECRET")
+    stripe_price_starter: str | None = Field(default=None, alias="STRIPE_PRICE_STARTER")
+    stripe_price_pro: str | None = Field(default=None, alias="STRIPE_PRICE_PRO")
+    stripe_price_expert: str | None = Field(default=None, alias="STRIPE_PRICE_EXPERT")
+    frontend_url: str = Field(default="http://localhost:3000", alias="FRONTEND_URL")
 
     # Resend (for password reset emails)
-    resend_api_key: str | None = Field(default=os.getenv("RESEND_API_KEY", None))
+    resend_api_key: str | None = Field(default=None, alias="RESEND_API_KEY")
 
 
 settings = Settings()

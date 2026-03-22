@@ -22,6 +22,18 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class AgentQuestion:
+    """A question from an agent, directed at another agent or the user."""
+
+    from_agent: str  # who asks
+    to: str  # "user" | agent_code
+    question: str
+    context: str  # why this question matters
+    answered: bool = False
+    answer: str | None = None
+
+
+@dataclass
 class DocumentDraft:
     """A single document produced by an agent."""
 
@@ -32,18 +44,6 @@ class DocumentDraft:
     certainty: str  # solid | to_confirm | unknown | blocking
     version: int = 1  # incremented on each iteration
     depends_on: list[str] = field(default_factory=list)  # doc_ids read to produce this
-
-
-@dataclass
-class AgentQuestion:
-    """A question from an agent, directed at another agent or the user."""
-
-    from_agent: str  # who asks
-    to: str  # "user" | agent_code
-    question: str
-    context: str  # why this question matters
-    answered: bool = False
-    answer: str | None = None
 
 
 @dataclass

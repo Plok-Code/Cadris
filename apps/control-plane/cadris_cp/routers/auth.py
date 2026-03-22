@@ -9,17 +9,6 @@ from datetime import UTC, datetime, timedelta
 from html import escape
 from uuid import uuid4
 
-def _email_to_user_id(email: str) -> str:
-    """Derive a deterministic, collision-resistant user ID from an email.
-
-    Uses a short prefix (alphanumeric part of local) + SHA-256 suffix
-    so IDs stay human-readable but never collide
-    (e.g. x+y@example.com != x-y@example.com).
-    """
-    prefix = re.sub(r"[^a-zA-Z0-9]", "", email.split("@")[0])[:16]
-    h = hashlib.sha256(email.lower().encode()).hexdigest()[:12]
-    return f"{prefix}-{h}"
-
 import bcrypt
 import httpx
 from fastapi import APIRouter, Depends, Request, status
@@ -40,6 +29,18 @@ from ..repository import ControlPlaneRepository
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+def _email_to_user_id(email: str) -> str:
+    """Derive a deterministic, collision-resistant user ID from an email.
+
+    Uses a short prefix (alphanumeric part of local) + SHA-256 suffix
+    so IDs stay human-readable but never collide
+    (e.g. x+y@example.com != x-y@example.com).
+    """
+    prefix = re.sub(r"[^a-zA-Z0-9]", "", email.split("@")[0])[:16]
+    h = hashlib.sha256(email.lower().encode()).hexdigest()[:12]
+    return f"{prefix}-{h}"
 
 
 def _check_rate_limit(key: str) -> bool:

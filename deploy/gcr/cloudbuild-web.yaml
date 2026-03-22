@@ -3,11 +3,15 @@ steps:
     args:
       - "build"
       - "-t"
-      - "${_REGION}-docker.pkg.dev/$PROJECT_ID/cadris/web"
+      - "${_REGION}-docker.pkg.dev/$PROJECT_ID/cadris/web:${_IMAGE_TAG}"
+      - "-t"
+      - "${_REGION}-docker.pkg.dev/$PROJECT_ID/cadris/web:latest"
       - "-f"
       - "apps/web/Dockerfile"
       - "."
 images:
-  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/cadris/web"
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/cadris/web:${_IMAGE_TAG}"
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/cadris/web:latest"
 substitutions:
   _REGION: "europe-west1"
+  _IMAGE_TAG: "latest"

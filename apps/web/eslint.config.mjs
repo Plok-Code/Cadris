@@ -7,14 +7,12 @@ const config = [
   ...tsConfig,
   {
     rules: {
-      // Relax rules that would require large refactors (Dev B handles separately)
-      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/no-unused-vars": [
-        "warn",
+        "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
-      // Cosmetic warnings handled by Dev B — disable globally
-      "@next/next/no-img-element": "off",
+      "@next/next/no-img-element": "warn",
       "@next/next/no-html-link-for-pages": "off",
     },
   },

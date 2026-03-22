@@ -56,6 +56,14 @@ class TestIsPermanent:
         exc = APIConnectionError(request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"))
         assert is_permanent(exc) is False
 
+    def test_rate_limit_with_billing(self):
+        exc = _make_rate_limit_error("billing issue: your account is suspended")
+        assert is_permanent(exc) is True
+
+    def test_timeout_error_not_permanent(self):
+        exc = APITimeoutError(request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"))
+        assert is_permanent(exc) is False
+
     def test_generic_exception(self):
         assert is_permanent(Exception("something random")) is False
 
@@ -82,6 +90,22 @@ class TestIsJsonError:
     def test_generic_value_error(self):
         exc = ValueError("something else entirely")
         assert is_json_error(exc) is False
+
+    def test_api_status_error_with_json_message(self):
+        exc = _make_api_status_error(500, message="invalid json in response body")
+        assert is_json_error(exc) is True
+
+    def test_api_status_error_without_json_message(self):
+        exc = _make_api_status_error(500, message="internal server error")
+        assert is_json_error(exc) is False
+
+    def test_value_error_eof_while_parsing(self):
+        exc = ValueError("eof while parsing structured output")
+        assert is_json_error(exc) is True
+
+    def test_value_error_unterminated_string(self):
+        exc = ValueError("unterminated string in JSON")
+        assert is_json_error(exc) is True
 
     def test_random_exception(self):
         assert is_json_error(Exception("timeout")) is False
@@ -147,6 +171,45 @@ class TestIsRetryable:
     def test_httpx_timeout(self):
         exc = httpx.TimeoutException("Read timed out")
         assert is_retryable(exc) is True
+
+    def test_server_error_500(self):
+        exc = _make_api_status_error(500)
+        assert is_retryable(exc) is True
+
+    def test_server_error_429(self):
+        exc = _make_api_status_error(429)
+        assert is_retryable(exc) is True
+
+    def test_builtin_connection_error(self):
+        exc = ConnectionError("Connection reset by peer")
+        assert is_retryable(exc) is True
+
+    def test_builtin_timeout_error(self):
+        exc = TimeoutError("timed out")
+        assert is_retryable(exc) is True
+
+    def test_httpx_http_status_error_5xx(self):
+        response = httpx.Response(502, request=httpx.Request("GET", "https://api.example.com"))
+        exc = httpx.HTTPStatusError("Bad Gateway", request=response.request, response=response)
+        assert is_retryable(exc) is True
+
+    def test_httpx_http_status_error_4xx_not_retryable(self):
+        response = httpx.Response(403, request=httpx.Request("GET", "https://api.example.com"))
+        exc = httpx.HTTPStatusError("Forbidden", request=response.request, response=response)
+        assert is_retryable(exc) is False
+
+    def test_httpx_network_error(self):
+        exc = httpx.NetworkError("Network unreachable")
+        assert is_retryable(exc) is True
+
+    def test_pydantic_validation_error_is_retryable(self):
+        """Pydantic errors are JSON errors, and JSON errors are retryable."""
+        class M(BaseModel):
+            x: int
+        try:
+            M(x="not_a_number")  # type: ignore[arg-type]
+        except ValidationError as exc:
+            assert is_retryable(exc) is True
 
     def test_generic_exception_not_retryable(self):
         assert is_retryable(Exception("unknown error")) is False

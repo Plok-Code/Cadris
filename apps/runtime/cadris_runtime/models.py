@@ -11,79 +11,79 @@ AgentStatus = Literal["active", "waiting", "done"]
 
 
 class TimelineItem(BaseModel):
-    id: str
-    label: str
+    id: str = Field(max_length=64)
+    label: str = Field(max_length=200)
     status: TimelineStatus
 
 
 class ArtifactSection(BaseModel):
-    key: str
-    title: str
-    content: str
+    key: str = Field(max_length=64)
+    title: str = Field(max_length=500)
+    content: str = Field(max_length=50_000)
     certainty: CertaintyStatus = "unknown"
 
 
 class ArtifactBlock(BaseModel):
-    id: str
-    title: str
+    id: str = Field(max_length=64)
+    title: str = Field(max_length=500)
     status: BlockStatus
     certainty: CertaintyStatus
-    summary: str
-    content: str
+    summary: str = Field(max_length=2000)
+    content: str = Field(max_length=50_000)
     sections: list[ArtifactSection] = Field(default_factory=list)
 
 
 class MissionQuestion(BaseModel):
-    id: str
-    title: str
-    body: str
+    id: str = Field(max_length=128)
+    title: str = Field(max_length=500)
+    body: str = Field(max_length=5000)
     status: Literal["waiting", "answered"] = "waiting"
-    answer_text: str | None = None
+    answer_text: str | None = Field(default=None, max_length=5000)
 
 
 class MissionAgent(BaseModel):
-    code: str
-    label: str
-    role: str
+    code: str = Field(max_length=64)
+    label: str = Field(max_length=200)
+    role: str = Field(max_length=500)
     status: AgentStatus
-    prompt_key: str
-    prompt_version: str
-    summary: str
+    prompt_key: str = Field(max_length=128)
+    prompt_version: str = Field(max_length=32)
+    summary: str = Field(max_length=2000)
 
 
 class MissionMessage(BaseModel):
-    id: str
-    agent_code: str
-    agent_label: str
-    stage: str
-    title: str
-    body: str
+    id: str = Field(max_length=128)
+    agent_code: str = Field(max_length=64)
+    agent_label: str = Field(max_length=200)
+    stage: str = Field(max_length=64)
+    title: str = Field(max_length=500)
+    body: str = Field(max_length=10_000)
     created_at: str
 
 
 class CertaintyEntry(BaseModel):
-    id: str
-    title: str
+    id: str = Field(max_length=128)
+    title: str = Field(max_length=500)
     status: CertaintyStatus
-    impact: str
-    source_label: str
+    impact: str = Field(max_length=2000)
+    source_label: str = Field(max_length=200)
 
 
 class RuntimeInputItem(BaseModel):
-    id: str
-    kind: str
-    source: str
-    content: str
-    display_name: str | None = None
-    mime_type: str | None = None
+    id: str = Field(max_length=64)
+    kind: str = Field(max_length=64)
+    source: str = Field(max_length=200)
+    content: str = Field(max_length=50_000)
+    display_name: str | None = Field(default=None, max_length=200)
+    mime_type: str | None = Field(default=None, max_length=128)
     byte_size: int | None = None
-    preview_text: str | None = None
+    preview_text: str | None = Field(default=None, max_length=2000)
 
 
 class DossierSection(BaseModel):
-    id: str
-    title: str
-    content: str
+    id: str = Field(max_length=128)
+    title: str = Field(max_length=500)
+    content: str = Field(max_length=50_000)
     certainty: CertaintyStatus
 
 
@@ -92,18 +92,18 @@ PlanCode = Literal["free", "starter", "pro", "expert"]
 
 
 class RuntimeStartRequest(BaseModel):
-    mission_id: str
-    project_name: str
+    mission_id: str = Field(max_length=128, pattern=r"^[a-zA-Z0-9_-]+$")
+    project_name: str = Field(max_length=200)
     intake_text: str = Field(min_length=20, max_length=50_000)
     flow_code: FlowCode = "demarrage"
     plan: PlanCode = "free"
-    template_id: str | None = None
-    supporting_inputs: list[RuntimeInputItem] = Field(default_factory=list, max_length=20)
+    template_id: str | None = Field(default=None, max_length=50)
+    supporting_inputs: list[RuntimeInputItem] = Field(default_factory=list)
 
 
 class RuntimeStartResponse(BaseModel):
-    summary: str
-    next_step: str
+    summary: str = Field(max_length=10_000)
+    next_step: str = Field(max_length=5_000)
     artifact_blocks: list[ArtifactBlock]
     active_question: MissionQuestion
     active_agents: list[MissionAgent]
@@ -113,8 +113,8 @@ class RuntimeStartResponse(BaseModel):
 
 
 class RuntimeResumeRequest(BaseModel):
-    mission_id: str
-    project_name: str
+    mission_id: str = Field(max_length=128, pattern=r"^[a-zA-Z0-9_-]+$")
+    project_name: str = Field(max_length=200)
     intake_text: str = Field(max_length=50_000)
     answer_text: str = Field(default="", max_length=20_000)
     flow_code: FlowCode = "demarrage"
@@ -126,8 +126,8 @@ class RuntimeResumeRequest(BaseModel):
 
 
 class RuntimeResumeResponse(BaseModel):
-    summary: str
-    next_step: str
+    summary: str = Field(max_length=10_000)
+    next_step: str = Field(max_length=5_000)
     artifact_blocks: list[ArtifactBlock]
     active_question: MissionQuestion | None = None
     certainty_entries: list[CertaintyEntry] = Field(default_factory=list)
@@ -135,7 +135,7 @@ class RuntimeResumeResponse(BaseModel):
     recent_messages: list[MissionMessage]
     timeline: list[TimelineItem]
     status: MissionStatus
-    dossier_title: str | None = None
-    dossier_summary: str | None = None
+    dossier_title: str | None = Field(default=None, max_length=500)
+    dossier_summary: str | None = Field(default=None, max_length=10_000)
     dossier_sections: list[DossierSection] = Field(default_factory=list)
-    quality_label: str | None = None
+    quality_label: str | None = Field(default=None, max_length=100)

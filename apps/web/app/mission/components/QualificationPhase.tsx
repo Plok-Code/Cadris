@@ -1,6 +1,7 @@
 "use client";
 
 import type { RefObject } from "react";
+import { SKIP_ANSWER } from "@cadris/schemas";
 import type { ChatMessage, QualificationQuestion } from "../types";
 
 interface QualificationPhaseProps {
@@ -67,7 +68,7 @@ export function QualificationPhase({
             <button
               className="chat__skip"
               onClick={() => {
-                setQualAnswer("je_sais_pas");
+                setQualAnswer(SKIP_ANSWER);
                 setTimeout(() => handleQualAnswer(), 50);
               }}
             >

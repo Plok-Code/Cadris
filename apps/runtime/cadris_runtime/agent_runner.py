@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import time
 from dataclasses import dataclass, field
 from typing import TypeVar
@@ -266,7 +267,7 @@ async def run_agent(
             break
         except Exception as exc:  # noqa: BLE001 — retry loop uses typed error classification
             if is_retryable(exc) and attempt < max_retries:
-                wait = min(attempt * 30, 120)
+                base_wait = min(attempt * 30, 120)
 
                 # On JSON/validation errors: shorten the prompt to avoid truncation
                 if is_json_error(exc):
@@ -278,12 +279,17 @@ async def run_agent(
                         "- Ne coupe PAS le JSON en plein milieu.\n"
                         "- Si necessaire, reduis legerement la longueur pour que le JSON soit complet.\n"
                     )
-                    wait = min(wait, 10)  # faster retry for JSON errors
+                    base_wait = min(base_wait, 10)  # faster retry for JSON errors
+
+                # Add jitter to prevent thundering herd on concurrent retries
+                jitter = random.uniform(0, base_wait * 0.3)
+                wait = base_wait + jitter
 
                 logger.warning(
-                    "agent %s attempt %d/%d failed (%s: %s), retrying in %ds",
+                    "agent %s attempt %d/%d failed (%s), retrying in %.1fs",
                     spec.code, attempt, max_retries,
-                    type(exc).__name__, str(exc)[:200], wait,
+                    type(exc).__name__, wait,
+                    exc_info=True,
                 )
                 await asyncio.sleep(wait)
             else:

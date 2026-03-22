@@ -9,6 +9,7 @@ Memory is persisted via mission_store between HTTP requests.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from .agent_manager import run_consolidation_wave, run_single_wave_cycle, get_specs_by_wave, get_wave_doc_ids
@@ -94,7 +95,7 @@ class CollaborativeEngine:
                 plan=payload.plan,
             )
 
-        action = getattr(payload, "action", "next_wave")
+        action = payload.action
 
         if action == "answer_qualification":
             # Inject qualification answers and run Wave 1
@@ -204,7 +205,6 @@ class CollaborativeEngine:
         """Non-streaming start — runs wave 1 only and returns response."""
         emitter = EventEmitter()
 
-        import asyncio
         memory_task = asyncio.create_task(
             self.start_mission_stream(payload, emitter)
         )
@@ -218,7 +218,6 @@ class CollaborativeEngine:
         """Non-streaming resume — runs one wave cycle and returns response."""
         emitter = EventEmitter()
 
-        import asyncio
         memory_task = asyncio.create_task(
             self.resume_mission_stream(payload, emitter)
         )
@@ -265,6 +264,7 @@ async def _run_qualification(
             raise RuntimeError(f"openai-agents import failed: {exc}") from exc
 
         from .agent_runner import _get_run_config
+        from .error_classification import is_retryable
 
         agent = Agent(
             name="Qualification",
@@ -275,9 +275,26 @@ async def _run_qualification(
 
         run_config = _get_run_config(choice)
 
-        streamed = Runner.run_streamed(agent, task, run_config=run_config)
-        async for _event in streamed.stream_events():
-            pass
+        # Retry logic with timeout — qualification is critical for UX
+        max_retries = 3
+        QUALIFICATION_TIMEOUT = 120  # 2 minutes
+        for attempt in range(1, max_retries + 1):
+            try:
+                async with asyncio.timeout(QUALIFICATION_TIMEOUT):
+                    streamed = Runner.run_streamed(agent, task, run_config=run_config)
+                    async for _event in streamed.stream_events():
+                        pass
+                break
+            except Exception as retry_exc:  # noqa: BLE001 — retry loop
+                if is_retryable(retry_exc) and attempt < max_retries:
+                    wait = min(attempt * 10, 30)
+                    logger.warning(
+                        "qualification attempt %d/%d failed (%s), retrying in %ds",
+                        attempt, max_retries, type(retry_exc).__name__, wait,
+                    )
+                    await asyncio.sleep(wait)
+                else:
+                    raise
 
         output: QualificationOutput = streamed.final_output_as(QualificationOutput)
 

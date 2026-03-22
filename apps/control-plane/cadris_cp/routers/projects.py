@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from ..auth import AuthenticatedUser, require_user
-from ..billing import check_mission_limit
+from ..billing import check_and_increment_mission
 from ..database import get_session
 from ..dependencies import runtime_client
 from ..errors import AppError
@@ -71,7 +71,7 @@ async def create_mission(
     db_user = repository.get_user(user.id)
     user_plan = db_user.plan if db_user else "free"
 
-    if db_user and not check_mission_limit(db_user, session):
+    if db_user and not check_and_increment_mission(db_user, session):
         raise AppError.forbidden(
             "Vous avez atteint la limite de missions pour votre plan. "
             "Passez au plan superieur pour plus de missions."
@@ -126,6 +126,7 @@ async def create_mission(
     repository.update_agent_run(run_id=run_id, status=mission.status)
 
     updated_project = repository.update_project_after_mission(
+        user_id=user.id,
         project_id=project.id,
         active_mission_id=mission.id,
         active_mission_status=mission.status,

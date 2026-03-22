@@ -66,3 +66,34 @@ def client():
 @pytest.fixture()
 def auth_headers():
     return {"x-cadris-user-id": f"test-{uuid4().hex[:12]}"}
+
+
+# ---------------------------------------------------------------------------
+# Shared mock fixtures for integration tests
+# ---------------------------------------------------------------------------
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+
+@pytest.fixture()
+def mock_runtime():
+    mock = MagicMock()
+    mock.start_mission = AsyncMock()
+    mock.resume_mission = AsyncMock()
+    mock.start_mission_stream = MagicMock()
+    mock.resume_mission_stream = MagicMock()
+    mock.cleanup_mission = AsyncMock()
+    with patch("cadris_cp.routers.projects.runtime_client", mock), \
+         patch("cadris_cp.routers.missions.runtime_client", mock), \
+         patch("cadris_cp.routers.generation.runtime_client", mock):
+        yield mock
+
+
+@pytest.fixture()
+def mock_renderer():
+    mock = MagicMock()
+    mock.render_markdown = AsyncMock()
+    mock.render_pdf = AsyncMock()
+    with patch("cadris_cp.dependencies.renderer_client", mock), \
+         patch("cadris_cp.routers.generation.renderer_client", mock):
+        yield mock

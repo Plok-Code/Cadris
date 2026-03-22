@@ -21,28 +21,30 @@ _SANITIZED_ATTRIBUTES = {
 }
 _SANITIZED_PROTOCOLS = ["http", "https", "mailto"]
 
+# CSS unified with apps/renderer/app/main.py — canonical source is the renderer.
+# If you change CSS here, update the renderer too (or better: call the renderer service).
 _PDF_CSS = """
 @page { size: A4; margin: 2cm; }
 body {
-    font-family: Helvetica, Arial, sans-serif;
-    font-size: 10pt;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-size: 11pt;
     line-height: 1.6;
     color: #1a1a2e;
 }
-h1 { font-size: 18pt; color: #16213e; border-bottom: 2px solid #0f3460; padding-bottom: 6pt; margin-bottom: 12pt; }
-h2 { font-size: 13pt; color: #0f3460; margin-top: 16pt; margin-bottom: 6pt; }
-h3 { font-size: 11pt; color: #16213e; margin-top: 12pt; margin-bottom: 4pt; }
-p { margin-bottom: 8pt; }
-ul, ol { margin-bottom: 8pt; padding-left: 20pt; }
-li { margin-bottom: 3pt; }
-table { width: 100%; border-collapse: collapse; margin-bottom: 10pt; font-size: 9pt; }
-th, td { border: 1px solid #ccc; padding: 4pt 6pt; text-align: left; vertical-align: top; }
-th { background: #f0f4f8; font-weight: bold; color: #0f3460; }
-code { font-family: Courier; font-size: 8pt; background: #f0f4f8; padding: 1pt 3pt; }
-pre { background: #f0f4f8; padding: 6pt 10pt; font-size: 8pt; margin-bottom: 8pt; }
+h1 { font-size: 20pt; color: #16213e; border-bottom: 2px solid #0f3460; padding-bottom: 8pt; margin-bottom: 16pt; }
+h2 { font-size: 14pt; color: #0f3460; margin-top: 18pt; margin-bottom: 8pt; }
+h3 { font-size: 12pt; color: #16213e; margin-top: 14pt; margin-bottom: 6pt; }
+p { margin-bottom: 10pt; }
+ul, ol { margin-bottom: 10pt; padding-left: 20pt; }
+li { margin-bottom: 4pt; }
+table { width: 100%; border-collapse: collapse; margin-bottom: 12pt; font-size: 10pt; }
+th, td { border: 1px solid #ccc; padding: 6pt 8pt; text-align: left; vertical-align: top; }
+th { background: #f0f4f8; font-weight: 600; color: #0f3460; }
+code { font-family: 'Consolas', 'Courier New', monospace; font-size: 9pt; background: #f0f4f8; padding: 1pt 4pt; }
+pre { background: #f0f4f8; padding: 8pt 12pt; font-size: 9pt; margin-bottom: 10pt; }
 pre code { background: none; padding: 0; }
-blockquote { border-left: 3pt solid #0f3460; margin: 8pt 0; padding: 4pt 10pt; color: #555; background: #f8f9fa; }
-.footer { margin-top: 20pt; padding-top: 6pt; border-top: 1px solid #ddd; font-size: 7pt; color: #999; }
+blockquote { border-left: 3pt solid #0f3460; margin: 10pt 0; padding: 4pt 12pt; color: #555; background: #f8f9fa; }
+.footer { margin-top: 24pt; padding-top: 8pt; border-top: 1px solid #ddd; font-size: 8pt; color: #999; }
 """
 
 
@@ -57,8 +59,15 @@ def render_safe_markdown_html(content: str) -> str:
     )
 
 
+_PDF_TIMEOUT_SECONDS = 30
+
+
 def md_to_pdf_bytes(title: str, content: str) -> bytes:
-    """Convert a markdown document to PDF via HTML (supports tables, accents, formatting)."""
+    """Convert a markdown document to PDF via HTML (supports tables, accents, formatting).
+
+    Applies a timeout to prevent xhtml2pdf from hanging on malformed HTML.
+    """
+    import signal
     from xhtml2pdf import pisa
 
     html_body = render_safe_markdown_html(content)
@@ -75,6 +84,9 @@ def md_to_pdf_bytes(title: str, content: str) -> bytes:
 </html>"""
 
     buffer = io.BytesIO()
+    # Truncate excessively large content to prevent OOM in xhtml2pdf
+    if len(html) > 500_000:
+        html = html[:500_000] + "</body></html>"
     pisa.CreatePDF(html, dest=buffer)
     buffer.seek(0)
     return buffer.getvalue()

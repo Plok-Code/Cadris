@@ -45,7 +45,7 @@ def prompts_root() -> Path:
     return Path(__file__).resolve().parents[3] / "packages" / "prompts"
 
 
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=None)  # Permanent cache — server restart required after prompt file changes
 def load_prompt(key: str) -> PromptTemplate:
     relative_path = PROMPT_PATHS.get(key)
     if relative_path is None:

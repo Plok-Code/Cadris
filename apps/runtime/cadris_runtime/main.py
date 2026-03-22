@@ -4,13 +4,16 @@ import asyncio
 import json
 import logging
 import time
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Response
-from fastapi.responses import StreamingResponse
+from fastapi import Depends, FastAPI, Request, Response
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from pydantic import BaseModel, Field
 
+from .auth import verify_internal_request
 from .collaborative_engine import CollaborativeEngine
+from .config import settings
 from .engine import create_runtime_engine
 from .event_emitter import EventEmitter
 from .event_types import EventType
@@ -21,13 +24,54 @@ from .models import (
     RuntimeStartRequest,
     RuntimeStartResponse,
 )
+from .rate_limit import check_rate_limit
 from . import training_logger
 
 logger = logging.getLogger(__name__)
 
 runtime_engine = create_runtime_engine()
 
-app = FastAPI(title="Cadris Runtime", version="0.1.0")
+_eviction_task: asyncio.Task | None = None
+
+
+async def _periodic_eviction() -> None:
+    """Background task: evict stale missions from memory every 5 minutes."""
+    while True:
+        await asyncio.sleep(300)
+        try:
+            mission_store.evict_stale()
+        except Exception:  # noqa: BLE001 — background task must not crash
+            logger.exception("periodic eviction failed")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    global _eviction_task
+
+    # ── Startup checks ──
+    if settings.model_profile != "dev":
+        if not settings.openai_api_key and not settings.together_api_key:
+            logger.warning(
+                "Neither OPENAI_API_KEY nor TOGETHER_API_KEY is set — "
+                "agent execution will fail until at least one is configured"
+            )
+
+    _eviction_task = asyncio.create_task(_periodic_eviction())
+    logger.info("runtime started (profile=%s)", settings.model_profile)
+
+    yield
+
+    # ── Graceful shutdown ──
+    if _eviction_task:
+        _eviction_task.cancel()
+        try:
+            await _eviction_task
+        except asyncio.CancelledError:
+            pass
+    logger.info("runtime shutdown complete")
+
+
+app = FastAPI(title="Cadris Runtime", version="0.1.0", lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -53,12 +97,12 @@ async def healthcheck():
 
 
 @app.post("/internal/runtime/start", response_model=RuntimeStartResponse)
-async def start_runtime(payload: RuntimeStartRequest):
+async def start_runtime(payload: RuntimeStartRequest, _auth: None = Depends(verify_internal_request)):
     return await runtime_engine.start_mission(payload)
 
 
 @app.post("/internal/runtime/resume", response_model=RuntimeResumeResponse)
-async def resume_runtime(payload: RuntimeResumeRequest):
+async def resume_runtime(payload: RuntimeResumeRequest, _auth: None = Depends(verify_internal_request)):
     return await runtime_engine.resume_mission(payload)
 
 
@@ -92,6 +136,7 @@ def _build_streaming_sse(coro_factory):
     """
     async def event_generator():
         emitter = EventEmitter()
+        agent_task: asyncio.Task | None = None
 
         async def _run():
             try:
@@ -100,18 +145,27 @@ def _build_streaming_sse(coro_factory):
             except TimeoutError:
                 logger.error("mission stream timed out after %ds", MISSION_TIMEOUT)
                 await emitter.emit(EventType.ERROR, {"error": "La mission a depasse le temps limite."})
+            except asyncio.CancelledError:
+                logger.info("mission stream cancelled (client disconnect)")
+                raise
             except Exception as exc:  # noqa: BLE001 — SSE must report errors, never drop
                 logger.error("mission stream error: %s", exc, exc_info=True)
                 await emitter.emit(EventType.ERROR, {"error": "Une erreur interne est survenue. Veuillez reessayer."})
             finally:
                 await emitter.close()
 
-        task = asyncio.create_task(_run())
+        agent_task = asyncio.create_task(_run())
 
-        async for event in emitter:
-            yield f"event: {event.type.value}\ndata: {json.dumps(event.data, ensure_ascii=False)}\n\n"
+        try:
+            async for event in emitter:
+                yield f"event: {event.type.value}\ndata: {json.dumps(event.data, ensure_ascii=False)}\n\n"
+        except asyncio.CancelledError:
+            # Client disconnected — cancel the background agent task
+            if agent_task and not agent_task.done():
+                agent_task.cancel()
+            raise
 
-        await task
+        await agent_task
 
     return StreamingResponse(event_generator(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
@@ -120,7 +174,7 @@ def _build_streaming_sse(coro_factory):
 
 
 @app.get("/internal/runtime/mission/{mission_id}/documents")
-async def get_mission_documents(mission_id: str):
+async def get_mission_documents(mission_id: str, _auth: None = Depends(verify_internal_request)):
     """Return full document contents for a mission (used by benchmark scoring)."""
     memory = await mission_store.aget(mission_id)
     if memory is None:
@@ -142,7 +196,7 @@ async def get_mission_documents(mission_id: str):
 
 
 @app.delete("/internal/runtime/missions/{mission_id}")
-async def cleanup_mission(mission_id: str):
+async def cleanup_mission(mission_id: str, _auth: None = Depends(verify_internal_request)):
     """Remove mission memory and snapshots from runtime."""
     from . import mission_store
     await mission_store.aremove(mission_id)
@@ -153,15 +207,15 @@ async def cleanup_mission(mission_id: str):
 
 
 class FeedbackRequest(BaseModel):
-    mission_id: str
-    doc_id: str | None = None
+    mission_id: str = Field(max_length=128, pattern=r"^[a-zA-Z0-9_-]+$")
+    doc_id: str | None = Field(default=None, max_length=200)
     rating: int = Field(ge=1, le=5, description="1=bad, 5=excellent")
-    correction: str = ""
-    notes: str = ""
+    correction: str = Field(default="", max_length=10_000)
+    notes: str = Field(default="", max_length=5_000)
 
 
 @app.post("/internal/runtime/feedback")
-async def submit_feedback(payload: FeedbackRequest):
+async def submit_feedback(payload: FeedbackRequest, _auth: None = Depends(verify_internal_request)):
     """Collect user feedback on a document or overall mission. Stored for training."""
     training_logger.log_feedback(
         mission_id=payload.mission_id,
@@ -174,8 +228,12 @@ async def submit_feedback(payload: FeedbackRequest):
 
 
 @app.post("/internal/runtime/start-stream")
-async def start_mission_stream(payload: RuntimeStartRequest):
+async def start_mission_stream(payload: RuntimeStartRequest, _auth: None = Depends(verify_internal_request)):
     """Launch a collaborative mission and stream SSE events in real-time."""
+    # Rate limit: 5 mission starts per minute per mission_id
+    if not check_rate_limit(f"start:{payload.mission_id}", max_requests=5, window_seconds=60):
+        return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded. Please wait before starting a new mission."})
+
     if not isinstance(runtime_engine, CollaborativeEngine):
         result = await runtime_engine.start_mission(payload)
         d = result.model_dump() if hasattr(result, "model_dump") else (result if isinstance(result, dict) else {"ok": True})
@@ -185,8 +243,12 @@ async def start_mission_stream(payload: RuntimeStartRequest):
 
 
 @app.post("/internal/runtime/resume-stream")
-async def resume_mission_stream(payload: RuntimeResumeRequest):
+async def resume_mission_stream(payload: RuntimeResumeRequest, _auth: None = Depends(verify_internal_request)):
     """Resume a collaborative mission with user answer and stream SSE events."""
+    # Rate limit: 5 resumes per minute per mission_id
+    if not check_rate_limit(f"resume:{payload.mission_id}", max_requests=5, window_seconds=60):
+        return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded. Please wait before resuming."})
+
     if not isinstance(runtime_engine, CollaborativeEngine):
         result = await runtime_engine.resume_mission(payload)
         d = result.model_dump() if hasattr(result, "model_dump") else (result if isinstance(result, dict) else {"ok": True})

@@ -44,14 +44,21 @@ class ProjectRepoMixin:
     def update_project_after_mission(
         self,
         *,
+        user_id: str,
         project_id: str,
         active_mission_id: str,
         active_mission_status: str,
         mission_delta: int = 0,
     ) -> ProjectSummary:
-        record = self.session.get(ProjectRecord, project_id)
+        # Defense-in-depth: verify ownership even though callers already check
+        statement = select(ProjectRecord).where(
+            ProjectRecord.id == project_id,
+            ProjectRecord.user_id == user_id,
+        )
+        record = self.session.scalar(statement)
         if record is None:
-            raise ValueError("Project not found")
+            from ..errors import AppError
+            raise AppError.not_found("project_not_found", "Project not found.")
 
         record.active_mission_id = active_mission_id
         record.active_mission_status = active_mission_status

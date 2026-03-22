@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..auth import AuthenticatedUser, require_user
-from ..billing import check_mission_limit, increment_mission_count
+from ..billing import check_and_increment_mission
 from ..rate_limit import check_rate_limit
 from ..database import get_session
 from ..dependencies import file_search_client, runtime_client, upload_storage
@@ -65,12 +65,16 @@ async def _prime_runtime_stream(stream):
 
 @router.get("", response_model=None)
 async def list_missions(
+    skip: int = 0,
+    limit: int = 50,
     user: AuthenticatedUser = Depends(require_user),
     session: Session = Depends(get_session),
 ):
     """List all missions for the authenticated user (most recent first)."""
+    limit = min(max(limit, 1), 100)  # clamp to [1, 100]
+    skip = max(skip, 0)
     repository = ControlPlaneRepository(session)
-    return repository.list_missions_for_user(user.id)
+    return repository.list_missions_for_user(user.id, skip=skip, limit=limit)
 
 
 @router.delete("/{mission_id}", status_code=204)
@@ -112,7 +116,7 @@ async def run_mission_stream(
     repository = ControlPlaneRepository(session)
 
     db_user = repository.get_user(user.id)
-    if db_user and not check_mission_limit(db_user, session):
+    if db_user and not check_and_increment_mission(db_user, session):
         raise AppError.forbidden(
             "Vous avez atteint la limite de missions pour votre plan. "
             "Passez au plan superieur pour plus de missions."
@@ -135,7 +139,15 @@ async def run_mission_stream(
             supporting_inputs=[],
         )
     )
-    first_event = await _prime_runtime_stream(stream)
+    try:
+        first_event = await _prime_runtime_stream(stream)
+    except AppError:
+        # Rollback the mission counter if runtime failed to start —
+        # the user should not lose a quota slot for a backend failure.
+        if db_user:
+            db_user.missions_this_month = max(0, db_user.missions_this_month - 1)
+            session.commit()
+        raise
 
     if project is None:
         project = repository.create_project(
@@ -169,14 +181,12 @@ async def run_mission_stream(
     ))
 
     repository.update_project_after_mission(
+        user_id=user.id,
         project_id=project.id,
         active_mission_id=mission_id,
         active_mission_status="in_progress",
         mission_delta=1,
     )
-
-    if db_user:
-        increment_mission_count(db_user, session)
 
     async def event_generator():
         yield f"event: mission_created\ndata: {json.dumps({'mission_id': mission_id, 'project_id': project.id})}\n\n"
