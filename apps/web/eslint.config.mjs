@@ -1,5 +1,5 @@
-import nextConfig from "eslint-config-next";
-import tsConfig from "eslint-config-next/typescript";
+import nextConfig from "eslint-config-next/index.js";
+import tsConfig from "eslint-config-next/typescript.js";
 
 /** @type {import("eslint").Linter.Config[]} */
 const config = [

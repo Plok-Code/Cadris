@@ -331,15 +331,3 @@ def check_and_increment_mission(user: UserRecord, db: Session) -> bool:
     if locked_user is not user:
         user.missions_this_month = locked_user.missions_this_month
     return True
-
-
-def increment_mission_count(user: UserRecord, db: Session) -> None:
-    """Increment the user's monthly mission counter.
-
-    DEPRECATED: prefer check_and_increment_mission() for atomic check+increment.
-    Kept for backward compatibility.
-    """
-    now = datetime.now(UTC)
-    _reset_monthly_counter_if_needed(user, now)
-    user.missions_this_month += 1
-    db.commit()

@@ -2,7 +2,11 @@
 # Anchor rootdir to the repo root so that conftest.py (which adds both service
 # directories to sys.path) is always loaded — even when running a single
 # service's tests from the root:
-#   python -m pytest apps/runtime/tests apps/control-plane/tests -q
+#   python -m pytest apps/runtime/tests apps/control-plane/tests apps/renderer/tests -q
+#
+# importlib mode prevents namespace collisions between multiple tests/ directories
+# (each app has its own tests/ folder; without importlib, pytest sees them as one package).
+addopts = "--import-mode=importlib"
 filterwarnings = [
     "ignore::pydantic._internal._generate_schema.UnsupportedFieldAttributeWarning",
 ]
