@@ -340,30 +340,30 @@ class ValidateDocsRequest(ApiModel):
 
 
 class RegisterRequest(BaseModel):
-    email: str
-    password: str
-    name: str = ""
+    email: str = Field(max_length=256)
+    password: str = Field(min_length=8, max_length=128)
+    name: str = Field(default="", max_length=200)
 
 
 class LoginRequest(BaseModel):
-    email: str
-    password: str
+    email: str = Field(max_length=256)
+    password: str = Field(max_length=128)
 
 
 class ForgotPasswordRequest(BaseModel):
-    email: str
+    email: str = Field(max_length=256)
 
 
 class ResetPasswordRequest(BaseModel):
-    token: str
-    password: str
+    token: str = Field(max_length=256)
+    password: str = Field(min_length=8, max_length=128)
 
 
 class CheckoutRequest(BaseModel):
-    plan: str
+    plan: str = Field(max_length=32)
 
 
-class LogoGenerateRequest(BaseModel):
+class LogoGenerateRequest(ApiModel):
     project_name: str
     project_brief: str
     num_variants: int = 3

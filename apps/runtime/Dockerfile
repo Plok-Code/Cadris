@@ -15,6 +15,10 @@ print(' '.join(d['project']['dependencies']))
 COPY apps/runtime/cadris_runtime/ cadris_runtime/
 COPY packages/prompts/ packages/prompts/
 
+# 3. Run as non-root
+RUN adduser --disabled-password --no-create-home appuser
+USER appuser
+
 EXPOSE 8001
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \

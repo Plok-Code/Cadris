@@ -126,4 +126,15 @@ async def download_mission_input(
     if not path.exists():
         raise AppError.not_found("input_file_missing", "Input file not found.")
 
-    return FileResponse(path, media_type=record.mime_type or "application/octet-stream", filename=record.display_name)
+    # Defense-in-depth: verify path is inside uploads dir
+    if not path.resolve().is_relative_to(settings.uploads_dir.resolve()):
+        raise AppError.internal(message="Invalid storage path.")
+
+    # Force download (Content-Disposition: attachment) to prevent
+    # stored XSS via uploaded HTML/SVG files rendered in browser.
+    return FileResponse(
+        path,
+        media_type="application/octet-stream",
+        filename=record.display_name,
+        headers={"Content-Disposition": f'attachment; filename="{record.display_name}"'},
+    )

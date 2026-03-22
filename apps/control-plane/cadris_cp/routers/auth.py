@@ -64,17 +64,20 @@ _EMAIL_RE = re.compile(r"^[^@\s]{1,128}@[^@\s]{1,128}\.[^@\s]{1,64}$")
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 async def auth_register(
     payload: RegisterRequest,
+    request: Request,
     session: Session = Depends(get_session),
 ):
+    client_ip = request.client.host if request.client else "unknown"
+    if not _check_rate_limit(f"register:{client_ip}"):
+        raise AppError.validation("rate_limited", "Trop de tentatives. Reessayez dans une minute.")
+
     email = payload.email.strip().lower()
     if not _EMAIL_RE.match(email):
         raise AppError.validation("invalid_email", "Adresse email invalide.")
-    if len(payload.password) < 8:
-        raise AppError.validation("weak_password", "Le mot de passe doit contenir au moins 8 caracteres.")
 
     repo = ControlPlaneRepository(session)
     if repo.get_user_by_email(email):
-        raise AppError.conflict("email_taken", "Un compte existe deja avec cet email.")
+        raise AppError.conflict("email_taken", "Impossible de creer le compte. Verifiez vos informations.")
 
     user_id = _email_to_user_id(email)
     password_hash = bcrypt.hashpw(payload.password.encode(), bcrypt.gensalt()).decode()

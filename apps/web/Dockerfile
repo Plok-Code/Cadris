@@ -37,6 +37,9 @@ COPY --from=build /app/apps/web/.next/standalone ./
 COPY --from=build /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=build /app/apps/web/public ./apps/web/public
 
+# Run as non-root (node:alpine provides 'node' user)
+USER node
+
 EXPOSE 3000
 
 CMD ["node", "apps/web/server.js"]

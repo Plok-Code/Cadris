@@ -23,7 +23,7 @@ class Settings(BaseModel):
         default=os.getenv("CADRIS_ALLOW_UNSIGNED_REQUESTS", "").lower() in ("1", "true", "yes")
     )
     trusted_proxy_max_skew_seconds: int = Field(
-        default=int(os.getenv("CONTROL_PLANE_TRUSTED_PROXY_MAX_SKEW_SECONDS", "300"))
+        default=int(os.getenv("CONTROL_PLANE_TRUSTED_PROXY_MAX_SKEW_SECONDS", "60"))
     )
     allowed_origins: list[str] = Field(
         default_factory=lambda: os.getenv(

@@ -105,8 +105,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       const publicPaths = ["/", "/login", "/register", "/forgot-password", "/reset-password", "/shared"];
       const isPublic =
         publicPaths.some((p) => pathname === p || pathname.startsWith(p + "/")) ||
-        pathname.startsWith("/api/auth") ||
-        pathname.startsWith("/api/shared") ||
+        pathname.startsWith("/api/auth/") || pathname === "/api/auth" ||
+        pathname.startsWith("/api/auth-proxy/") ||
+        pathname.startsWith("/api/shared/") ||
         pathname.startsWith("/_next");
 
       if (isPublic) return true;

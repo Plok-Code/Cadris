@@ -14,6 +14,10 @@ print(' '.join(d['project']['dependencies']))
 COPY cadris_cp/ cadris_cp/
 COPY sql/ sql/
 
+# 3. Run as non-root
+RUN adduser --disabled-password --no-create-home appuser
+USER appuser
+
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \

@@ -1,0 +1,49 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+deploy/gcr/.env.gcr
+deploy/.env.prod
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
+*.egg-info
+dist/
+build/
+
+# Node
+node_modules
+.next
+.turbo
+
+# Claude
+.claude/
+
+# Data
+apps/control-plane/data/
+data/
+*.db
+*.sqlite
+
+# Docker
+docker-compose*.yml
+Dockerfile*
+
+# Docs & tests (not needed in image)
+*.md
+LICENSE

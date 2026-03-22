@@ -190,9 +190,9 @@ async def run_mission_stream(
             async for event in stream:
                 save_sse_state(session, mission_id, event, collected_docs, repository)
                 yield f"event: {event['event']}\ndata: {json.dumps(event['data'], ensure_ascii=False)}\n\n"
-        except Exception as exc:  # noqa: BLE001 ? SSE must never drop silently
+        except Exception as exc:  # noqa: BLE001 — SSE must never drop silently
             logger.error("SSE stream error: %s", exc, exc_info=True)
-            yield f"event: error\ndata: {json.dumps({'error': str(exc)})}\n\n"
+            yield f"event: error\ndata: {json.dumps({'error': 'Une erreur interne est survenue.'})}\n\n"
         finally:
             await _close_async_iterator(stream)
 
@@ -220,8 +220,21 @@ async def resume_mission_stream(
     if not mission:
         raise AppError.not_found("mission_not_found", "Mission not found.")
 
+    mission_state = repository.get_mission_state(user.id, mission_id)
+    project = repository.get_project_for_user(user.id, mission.project_id)
+    if not project:
+        raise AppError.not_found("project_not_found", "Project not found.")
+
     db_user = repository.get_user(user.id)
     user_plan = db_user.plan if db_user else "free"
+    runtime_action = payload.action
+    if (
+        runtime_action == "next_wave"
+        and mission_state
+        and mission_state.get("phase") == "wave_running"
+        and int(mission_state.get("currentWave", 0) or 0) > 0
+    ):
+        runtime_action = "refine_wave"
 
     if payload.action == "answer_qualification" and payload.answer_text:
         try:
@@ -238,19 +251,19 @@ async def resume_mission_stream(
             async for event in runtime_client.resume_mission_stream(
                 RuntimeResumeRequest(
                     mission_id=mission_id,
-                    project_name="Mon projet",
+                    project_name=project.name,
                     intake_text=mission.intake_text,
                     answer_text=payload.answer_text.strip() if payload.answer_text else "",
                     flow_code=mission.flow_code,
                     plan=user_plan,
-                    action=payload.action,
+                    action=runtime_action,
                 )
             ):
                 save_sse_state(session, mission_id, event, collected_docs, repository)
                 yield f"event: {event['event']}\ndata: {json.dumps(event['data'], ensure_ascii=False)}\n\n"
         except Exception as exc:  # noqa: BLE001 — SSE must never drop silently
             logger.error("SSE resume stream error: %s", exc, exc_info=True)
-            yield f"event: error\ndata: {json.dumps({'error': str(exc)})}\n\n"
+            yield f"event: error\ndata: {json.dumps({'error': 'Une erreur interne est survenue.'})}\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -447,7 +460,10 @@ async def generate_mission_logo(
 
     db_user = repository.get_user(user.id)
     if not db_user or db_user.plan not in ("expert",):
-        raise AppError.forbidden("plan_required", "La generation de logo necessite le plan Expert.")
+        raise AppError.forbidden(
+            "La generation de logo necessite le plan Expert.",
+            code="plan_required",
+        )
 
     from openai import AsyncOpenAI
 

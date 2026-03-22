@@ -32,3 +32,14 @@ package-lock.json
 nul
 apps/runtime/data/
 data/training/
+
+# Secrets & certificates
+*.pem
+*.key
+*.crt
+.env.production
+.env.staging
+
+# SQLite (anywhere)
+*.sqlite
+*.sqlite3
