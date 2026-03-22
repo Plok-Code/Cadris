@@ -375,6 +375,35 @@ async def answer_question(
 
     is_final = runtime_response.status == "completed"
 
+    # ── Render dossier BEFORE marking mission as completed ──
+    # This ensures we never have status=completed + dossier_ready=true
+    # without an actual dossier in the DB (atomic invariant).
+    dossier = None
+    if is_final and runtime_response.dossier_title and runtime_response.dossier_summary:
+        try:
+            rendered = await renderer_client.render_markdown(
+                RendererRequest(
+                    title=runtime_response.dossier_title,
+                    summary=runtime_response.dossier_summary,
+                    quality_label=runtime_response.quality_label,
+                    sections=runtime_response.dossier_sections,
+                )
+            )
+            dossier = DossierReadModel(
+                mission_id=mission.id,
+                title=runtime_response.dossier_title,
+                quality_label=runtime_response.quality_label or "",
+                summary=runtime_response.dossier_summary,
+                markdown=rendered.markdown,
+                sections=runtime_response.dossier_sections,
+                updated_at=utc_now(),
+            )
+        except Exception:  # noqa: BLE001 — renderer failure must not mark mission complete
+            logger.error("Renderer failed for mission %s, marking as failed", mission.id, exc_info=True)
+            is_final = False
+            runtime_response.status = "failed"
+            runtime_response.next_step = "Le rendu du dossier a echoue. Relancez la mission."
+
     updated_mission = MissionReadModel(
         id=mission.id,
         project_id=mission.project_id,
@@ -390,7 +419,7 @@ async def answer_question(
         active_agents=runtime_response.active_agents,
         recent_messages=runtime_response.recent_messages,
         timeline=runtime_response.timeline,
-        dossier_ready=is_final,
+        dossier_ready=is_final and dossier is not None,
         updated_at=utc_now(),
     )
     repository.upsert_mission(updated_mission)
@@ -407,26 +436,8 @@ async def answer_question(
     repository.replace_messages(mission_id=mission.id, messages=updated_mission.recent_messages)
     repository.update_agent_run(run_id=run_id, status=updated_mission.status)
 
-    dossier = None
-    if is_final and runtime_response.dossier_title and runtime_response.dossier_summary:
-        rendered = await renderer_client.render_markdown(
-            RendererRequest(
-                title=runtime_response.dossier_title,
-                summary=runtime_response.dossier_summary,
-                quality_label=runtime_response.quality_label,
-                sections=runtime_response.dossier_sections,
-            )
-        )
-
-        dossier = DossierReadModel(
-            mission_id=mission.id,
-            title=runtime_response.dossier_title,
-            quality_label=runtime_response.quality_label or "",
-            summary=runtime_response.dossier_summary,
-            markdown=rendered.markdown,
-            sections=runtime_response.dossier_sections,
-            updated_at=utc_now(),
-        )
+    # Persist dossier ONLY after mission is persisted with matching state
+    if dossier is not None:
         repository.upsert_dossier(dossier)
 
     repository.update_project_after_mission(

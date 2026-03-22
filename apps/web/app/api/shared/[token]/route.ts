@@ -21,7 +21,7 @@ export async function GET(
   const { token } = await params;
 
   // Basic validation — tokens are url-safe base64, 43 chars
-  if (!token || token.length > 128 || !/^[\w\-]+$/.test(token)) {
+  if (!token || token.length > 128 || !/^[\w-]+$/.test(token)) {
     return new Response("Invalid token", { status: 400 });
   }
 

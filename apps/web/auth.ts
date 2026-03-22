@@ -116,9 +116,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     },
 
     async jwt({ token, user, account }) {
-      // On first sign-in, persist the user id and provider
+      // On first sign-in, derive a stable user_id from email.
+      // CRITICAL: always use emailToUserId() regardless of provider
+      // so that credentials + Google + GitHub all produce the same
+      // user_id for the same email. Using provider-native IDs would
+      // cause ensure_user() to reject cross-provider logins.
       if (user) {
-        token.userId = user.id ?? (user.email ? await emailToUserId(user.email) : undefined);
+        token.userId = user.email
+          ? await emailToUserId(user.email)
+          : user.id;
         token.provider = account?.provider ?? "unknown";
       }
       return token;

@@ -74,6 +74,19 @@ class UserRepoMixin:
     def create_password_reset_token(
         self, *, token_id: str, user_id: str, token_hash: str, expires_at: str
     ) -> None:
+        # Invalidate ALL previous unused tokens for this user first.
+        # This ensures only the latest reset link is valid and prevents
+        # old links from being exploitable until expiration.
+        from sqlalchemy import update
+        self.session.execute(
+            update(PasswordResetTokenRecord)
+            .where(
+                PasswordResetTokenRecord.user_id == user_id,
+                PasswordResetTokenRecord.used == 0,
+            )
+            .values(used=1)
+        )
+
         record = PasswordResetTokenRecord(
             id=token_id,
             user_id=user_id,
