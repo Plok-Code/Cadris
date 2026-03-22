@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -8,6 +10,41 @@ from pathlib import Path
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+
+
+# ── Structured JSON logging for production ────────────────────
+class _JsonFormatter(logging.Formatter):
+    """Emit one JSON object per log line for structured log aggregation."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "ts": self.formatTime(record, self.datefmt),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+        }
+        if record.exc_info and record.exc_info[0]:
+            payload["exc"] = self.formatException(record.exc_info)
+        for key in ("method", "path", "status_code", "duration_ms", "request_id"):
+            val = getattr(record, key, None)
+            if val is not None:
+                payload[key] = val
+        return json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def _setup_logging() -> None:
+    """Configure root logger: JSON in prod, human-readable in dev."""
+    level = logging.INFO
+    if os.getenv("K_SERVICE"):  # Cloud Run detection
+        handler = logging.StreamHandler()
+        handler.setFormatter(_JsonFormatter())
+        logging.root.handlers = [handler]
+        logging.root.setLevel(level)
+    else:
+        logging.basicConfig(level=level, format="%(asctime)s %(levelname)-8s %(name)s — %(message)s")
+
+
+_setup_logging()
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import settings

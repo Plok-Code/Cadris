@@ -59,7 +59,8 @@ async def run_critic(
         # The critic needs more content per doc than regular agents to evaluate
         # depth and quality properly.  2500 chars ~ 400+ words, matching the
         # critic's 400-word minimum threshold.
-        MAX_CHARS_PER_DOC = 2500
+        from .config import settings as _settings
+        MAX_CHARS_PER_DOC = _settings.critic_max_context_chars
         all_docs = list(memory.documents.values())
         doc_sections = []
         for doc in all_docs:

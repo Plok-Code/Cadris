@@ -48,7 +48,23 @@ async function proxyToControlPlane(req: Request): Promise<Response> {
 
   // Rewrite path: /api/cadris/api/missions/run → /api/missions/run
   const url = new URL(req.url);
-  const proxyPath = url.pathname.replace(/^\/api\/cadris/, "");
+  const rawProxyPath = url.pathname.replace(/^\/api\/cadris/, "");
+
+  // --- Path normalization: decode %2e%2e and resolve traversal ---
+  // Without this, an attacker could send /api/cadris/api/missions/%2e%2e/internal/admin
+  // which passes startsWith("/api/missions") but FastAPI decodes ".." and routes to /internal/admin.
+  const decodedPath = decodeURIComponent(rawProxyPath);
+  const normalizedPath = new URL(decodedPath, "http://dummy").pathname;
+
+  // Reject path traversal: if normalized path differs from decoded, someone is playing tricks
+  if (normalizedPath !== decodedPath || decodedPath.includes("..")) {
+    return Response.json(
+      { error: "forbidden", message: "Chemin non autorisé." },
+      { status: 403 }
+    );
+  }
+
+  const proxyPath = normalizedPath;
 
   // --- Path allowlist: reject anything outside known prefixes ---
   const isAllowed = ALLOWED_PATH_PREFIXES.some((prefix) =>
@@ -62,6 +78,9 @@ async function proxyToControlPlane(req: Request): Promise<Response> {
   }
 
   // --- Body size limit ---
+  // Check content-length header first (fast path), but also enforce
+  // the limit when actually reading the body (defense against chunked
+  // transfer-encoding which omits content-length and could OOM the server).
   const contentLength = req.headers.get("content-length");
   if (contentLength && parseInt(contentLength, 10) > MAX_BODY_BYTES) {
     return Response.json(
@@ -82,11 +101,19 @@ async function proxyToControlPlane(req: Request): Promise<Response> {
     }
   });
 
-  // Read body once for signature and forwarding
+  // Read body once for signature and forwarding.
+  // Enforce MAX_BODY_BYTES on actual read to prevent OOM from chunked
+  // transfer-encoding (which omits content-length header).
   let bodyText: string | undefined;
   let bodyBuffer: ArrayBuffer | undefined;
   if (req.method !== "GET" && req.method !== "HEAD") {
     bodyBuffer = await req.arrayBuffer();
+    if (bodyBuffer.byteLength > MAX_BODY_BYTES) {
+      return Response.json(
+        { error: "payload_too_large", message: "Le corps de la requête dépasse 10 Mo." },
+        { status: 413 }
+      );
+    }
     bodyText = new TextDecoder().decode(bodyBuffer);
   }
 

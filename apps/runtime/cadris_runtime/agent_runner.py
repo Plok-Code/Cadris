@@ -249,7 +249,7 @@ async def run_agent(
     current_task = task
     output = None
 
-    AGENT_TIMEOUT = 300  # 5 minutes per agent call
+    AGENT_TIMEOUT = settings.agent_timeout
 
     for attempt in range(1, max_retries + 1):
         try:

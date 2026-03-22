@@ -51,7 +51,8 @@ def _build_context(spec: AgentSpec, memory: MissionMemory) -> str:
     - free plan: 1500 chars (~250 words) — prompts target 300-500 words
     - paid plans: 2500 chars (~400 words) — prompts target 600-1200 words
     """
-    max_chars = 1500 if memory.plan == "free" else 2500
+    from .config import settings as _settings
+    max_chars = _settings.agent_free_max_context_chars if memory.plan == "free" else _settings.agent_max_context_chars
 
     other_docs = memory.get_documents_for_agent(spec.code)
     if not other_docs:

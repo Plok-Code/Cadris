@@ -276,8 +276,9 @@ async def _run_qualification(
         run_config = _get_run_config(choice)
 
         # Retry logic with timeout — qualification is critical for UX
+        from .config import settings as _settings
         max_retries = 3
-        QUALIFICATION_TIMEOUT = 120  # 2 minutes
+        QUALIFICATION_TIMEOUT = _settings.qualification_timeout
         for attempt in range(1, max_retries + 1):
             try:
                 async with asyncio.timeout(QUALIFICATION_TIMEOUT):

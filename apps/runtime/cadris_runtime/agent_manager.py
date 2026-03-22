@@ -27,10 +27,12 @@ from . import training_logger
 
 logger = logging.getLogger(__name__)
 
-# ── Cooldown constants (seconds) ─────────────────────────────
-INTER_WAVE_COOLDOWN = 15  # between waves — let TPM rate-limit window reset
-INTER_AGENT_COOLDOWN = 10  # between agents within a wave
-PRE_CRITIC_COOLDOWN = 5  # before running the critic after a wave
+# ── Cooldown constants (from centralized config) ────────────
+from .config import settings as _settings
+
+INTER_WAVE_COOLDOWN = _settings.inter_wave_cooldown
+INTER_AGENT_COOLDOWN = _settings.inter_agent_cooldown
+PRE_CRITIC_COOLDOWN = _settings.pre_critic_cooldown
 
 
 # ── Wave-to-doc mapping (for block coherence re-runs) ─────────

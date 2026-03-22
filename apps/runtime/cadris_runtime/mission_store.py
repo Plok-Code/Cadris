@@ -25,7 +25,7 @@ from .memory import AgentQuestion, DocumentDraft, MissionMemory
 
 logger = logging.getLogger(__name__)
 
-TTL_SECONDS = 3600  # evict after 1 hour of inactivity
+TTL_SECONDS = settings.mission_ttl_seconds
 _store: dict[str, tuple[MissionMemory, datetime]] = {}
 _snapshot_dir = settings.state_store_dir
 _snapshot_dir.mkdir(parents=True, exist_ok=True)

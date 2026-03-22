@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 
@@ -10,6 +11,38 @@ from fastapi import Depends, FastAPI, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from pydantic import BaseModel, Field
+
+
+# ── Structured JSON logging for production ────────────────────
+class _JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "ts": self.formatTime(record, self.datefmt),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+        }
+        if record.exc_info and record.exc_info[0]:
+            payload["exc"] = self.formatException(record.exc_info)
+        for key in ("method", "path", "status_code", "duration_ms"):
+            val = getattr(record, key, None)
+            if val is not None:
+                payload[key] = val
+        return json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def _setup_logging() -> None:
+    level = logging.INFO
+    if os.getenv("K_SERVICE"):
+        handler = logging.StreamHandler()
+        handler.setFormatter(_JsonFormatter())
+        logging.root.handlers = [handler]
+        logging.root.setLevel(level)
+    else:
+        logging.basicConfig(level=level, format="%(asctime)s %(levelname)-8s %(name)s — %(message)s")
+
+
+_setup_logging()
 
 from .auth import verify_internal_request
 from .collaborative_engine import CollaborativeEngine
@@ -114,7 +147,7 @@ _SSE_HEADERS = {
     "X-Accel-Buffering": "no",
 }
 
-MISSION_TIMEOUT = 1800  # 30 minutes max per mission stream
+MISSION_TIMEOUT = settings.mission_timeout
 
 
 def _build_fallback_sse(d: dict):
@@ -157,8 +190,20 @@ def _build_streaming_sse(coro_factory):
         agent_task = asyncio.create_task(_run())
 
         try:
-            async for event in emitter:
-                yield f"event: {event.type.value}\ndata: {json.dumps(event.data, ensure_ascii=False)}\n\n"
+            # Use wait_for with a heartbeat interval so idle periods
+            # (e.g. agent cooldowns) don't cause proxy/LB timeouts.
+            HEARTBEAT_INTERVAL = settings.heartbeat_interval
+            while True:
+                try:
+                    event = await asyncio.wait_for(
+                        emitter.__anext__(), timeout=HEARTBEAT_INTERVAL
+                    )
+                    yield f"event: {event.type.value}\ndata: {json.dumps(event.data, ensure_ascii=False)}\n\n"
+                except StopAsyncIteration:
+                    break
+                except TimeoutError:
+                    # No event for HEARTBEAT_INTERVAL — send SSE comment as keepalive
+                    yield ": heartbeat\n\n"
         except asyncio.CancelledError:
             # Client disconnected — cancel the background agent task
             if agent_task and not agent_task.done():

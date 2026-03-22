@@ -44,6 +44,24 @@ class Settings(BaseModel):
         default_factory=lambda: os.getenv("CADRIS_ALLOW_UNSIGNED_REQUESTS", "").lower() == "true"
     )
 
+    # ── Orchestration tuning (all in seconds) ─────────────────
+    inter_wave_cooldown: int = Field(default=15, description="Cooldown between waves (TPM reset)")
+    inter_agent_cooldown: int = Field(default=10, description="Cooldown between agents in a wave")
+    pre_critic_cooldown: int = Field(default=5, description="Cooldown before critic after wave")
+    agent_timeout: int = Field(default=300, description="Max seconds per agent call")
+    qualification_timeout: int = Field(default=120, description="Max seconds for qualification")
+    mission_timeout: int = Field(default=1800, description="Max seconds per mission stream")
+    heartbeat_interval: float = Field(default=15.0, description="SSE keepalive interval (seconds)")
+    max_agent_retries: int = Field(default=5, description="Max retry attempts per agent")
+
+    # ── Context limits (chars) ────────────────────────────────
+    agent_max_context_chars: int = Field(default=1200, description="Max chars per doc for agent context")
+    agent_free_max_context_chars: int = Field(default=800, description="Max chars per doc for free plan")
+    critic_max_context_chars: int = Field(default=2500, description="Max chars per doc for critic")
+
+    # ── Mission store ─────────────────────────────────────────
+    mission_ttl_seconds: int = Field(default=3600, description="Evict missions after this inactivity")
+
     @model_validator(mode="after")
     def _warn_missing_api_keys(self) -> Settings:
         """Log warnings at config time if required API keys are missing.
