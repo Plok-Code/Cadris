@@ -37,9 +37,14 @@ def _email_to_user_id(email: str) -> str:
     Uses a short prefix (alphanumeric part of local) + SHA-256 suffix
     so IDs stay human-readable but never collide
     (e.g. x+y@example.com != x-y@example.com).
+
+    IMPORTANT: this MUST produce the same output as emailToUserId() in
+    apps/web/auth.ts — otherwise a user who registers via email+password
+    and later logs in via Google/GitHub (same email) gets a different ID.
+    Both use: prefix[:16] + "-" + sha256(email.lower())[:32]
     """
     prefix = re.sub(r"[^a-zA-Z0-9]", "", email.split("@")[0])[:16]
-    h = hashlib.sha256(email.lower().encode()).hexdigest()[:12]
+    h = hashlib.sha256(email.lower().encode()).hexdigest()[:32]
     return f"{prefix}-{h}"
 
 

@@ -150,7 +150,7 @@ async def get_dossier_pptx(
 
     slide = prs.slides.add_slide(prs.slide_layouts[0])
     slide.shapes.title.text = dossier.title
-    if slide.placeholders[1]:
+    if 1 in slide.placeholders:
         slide.placeholders[1].text = dossier.summary
 
     for section in dossier.sections:

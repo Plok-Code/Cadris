@@ -149,44 +149,59 @@ async def run_mission_stream(
             session.commit()
         raise
 
-    if project is None:
-        project = repository.create_project(
+    # Persist mission and project in DB.  If this fails, rollback the quota
+    # AND close the runtime stream to avoid both a quota leak (user charged
+    # for nothing) and a connection leak (runtime keeps running in the void).
+    try:
+        if project is None:
+            project = repository.create_project(
+                user_id=user.id,
+                project_id=f"project_{uuid4().hex[:10]}",
+                name=project_name,
+            )
+
+        flow_label = FLOW_LABELS.get(payload.flow_code, payload.flow_code)
+        mission_title = f"{flow_label} - {project_name}"
+
+        repository.upsert_mission(MissionReadModel(
+            id=mission_id,
+            project_id=project.id,
+            flow_code=payload.flow_code,
+            flow_label=flow_label,
+            title=mission_title,
+            status="in_progress",
+            summary="Mission en cours de cadrage.",
+            next_step="Les agents travaillent...",
+            intake_text=payload.intake_text.strip(),
+            artifact_blocks=[],
+            active_question=None,
+            timeline=[
+                TLI(id="wave1", label="Strategie", status="in_progress"),
+                TLI(id="wave2", label="Business & Produit", status="not_started"),
+                TLI(id="wave3", label="Tech & Design", status="not_started"),
+                TLI(id="wave4", label="Consolidation", status="not_started"),
+            ],
+            dossier_ready=False,
+        ))
+
+        repository.update_project_after_mission(
             user_id=user.id,
-            project_id=f"project_{uuid4().hex[:10]}",
-            name=project_name,
+            project_id=project.id,
+            active_mission_id=mission_id,
+            active_mission_status="in_progress",
+            mission_delta=1,
         )
-
-    flow_label = FLOW_LABELS.get(payload.flow_code, payload.flow_code)
-    mission_title = f"{flow_label} - {project_name}"
-
-    repository.upsert_mission(MissionReadModel(
-        id=mission_id,
-        project_id=project.id,
-        flow_code=payload.flow_code,
-        flow_label=flow_label,
-        title=mission_title,
-        status="in_progress",
-        summary="Mission en cours de cadrage.",
-        next_step="Les agents travaillent...",
-        intake_text=payload.intake_text.strip(),
-        artifact_blocks=[],
-        active_question=None,
-        timeline=[
-            TLI(id="wave1", label="Strategie", status="in_progress"),
-            TLI(id="wave2", label="Business & Produit", status="not_started"),
-            TLI(id="wave3", label="Tech & Design", status="not_started"),
-            TLI(id="wave4", label="Consolidation", status="not_started"),
-        ],
-        dossier_ready=False,
-    ))
-
-    repository.update_project_after_mission(
-        user_id=user.id,
-        project_id=project.id,
-        active_mission_id=mission_id,
-        active_mission_status="in_progress",
-        mission_delta=1,
-    )
+    except Exception:
+        # Quota rollback — user must not lose a credit for a DB failure
+        if db_user:
+            db_user.missions_this_month = max(0, db_user.missions_this_month - 1)
+            try:
+                session.commit()
+            except Exception:  # noqa: BLE001 — best-effort rollback
+                session.rollback()
+        # Connection cleanup — close the runtime stream to stop agents
+        await _close_async_iterator(stream)
+        raise
 
     async def event_generator():
         yield f"event: mission_created\ndata: {json.dumps({'mission_id': mission_id, 'project_id': project.id})}\n\n"

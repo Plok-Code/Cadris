@@ -11,6 +11,7 @@ Plans: free (default), pro, team
 from __future__ import annotations
 
 import logging
+from collections import deque
 from datetime import UTC, datetime
 
 import stripe
@@ -86,21 +87,25 @@ def create_portal_session(user: UserRecord, db: Session) -> str:
 # In-memory set of recently processed Stripe event IDs for idempotency.
 # Stripe may re-deliver events; this prevents double-processing.
 # Bounded to prevent unbounded growth — oldest entries evicted via FIFO.
-_processed_events: set[str] = set()
-_processed_events_order: list[str] = []
+#
+# NOTE: This is per-process only. In multi-replica deployments, consider
+# storing processed event IDs in the database with a TTL to prevent
+# cross-replica duplicates after restarts.
 _MAX_PROCESSED_EVENTS = 1000
+_processed_events: set[str] = set()
+_processed_events_order: deque[str] = deque(maxlen=_MAX_PROCESSED_EVENTS)
 
 
 def _mark_event_processed(event_id: str) -> bool:
     """Return True if event was already processed, False otherwise."""
     if event_id in _processed_events:
         return True
+    # If deque is at capacity, evict the oldest before adding
+    if len(_processed_events_order) >= _MAX_PROCESSED_EVENTS:
+        evicted = _processed_events_order[0]
+        _processed_events.discard(evicted)
     _processed_events.add(event_id)
     _processed_events_order.append(event_id)
-    # Evict oldest if over capacity
-    while len(_processed_events_order) > _MAX_PROCESSED_EVENTS:
-        oldest = _processed_events_order.pop(0)
-        _processed_events.discard(oldest)
     return False
 
 
@@ -291,13 +296,18 @@ def check_and_increment_mission(user: UserRecord, db: Session) -> bool:
     locked_user = user
     try:
         from sqlalchemy import select
+        from sqlalchemy.exc import OperationalError, NotSupportedError
         from .records import UserRecord as UR
 
         stmt = select(UR).where(UR.id == user.id).with_for_update()
         result = db.execute(stmt).scalar_one_or_none()
         if isinstance(result, UR):
             locked_user = result
-    except Exception:  # noqa: BLE001 — SQLite doesn't support FOR UPDATE; mocks may fail
+    except (OperationalError, NotSupportedError):
+        # SQLite doesn't support FOR UPDATE — fall back to direct ORM object
+        pass
+    except AttributeError:
+        # Mock sessions (MagicMock) don't support execute() properly
         pass
 
     now = datetime.now(UTC)

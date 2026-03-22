@@ -46,6 +46,7 @@ def _verify_trusted_proxy_headers(
     timestamp: str | None,
     signature: str | None,
     body_hash: str | None,
+    actual_body_hash: str | None = None,
 ) -> None:
     secret = settings.trusted_proxy_secret
     if not secret:
@@ -81,8 +82,15 @@ def _verify_trusted_proxy_headers(
     if not hmac.compare_digest(expected, signature):
         raise AppError.unauthorized("Invalid trusted proxy signature.")
 
+    # Verify body integrity: the body received must match the hash that
+    # was signed. Without this check, a malicious intermediary could
+    # modify the body while keeping the signed headers intact.
+    if body_hash and actual_body_hash:
+        if not hmac.compare_digest(body_hash, actual_body_hash):
+            raise AppError.unauthorized("Body hash mismatch.")
 
-def require_user(
+
+async def require_user(
     request: Request,
     x_cadris_user_id: str | None = Header(default=None),
     x_cadris_user_email: str | None = Header(default=None),
@@ -101,6 +109,12 @@ def require_user(
     if x_cadris_user_email and not _BASIC_EMAIL.match(x_cadris_user_email):
         raise AppError.unauthorized("Invalid x-cadris-user-email header.")
 
+    # Compute actual body hash for integrity verification
+    actual_body_hash: str | None = None
+    if x_cadris_auth_body_hash and request.method not in ("GET", "HEAD", "OPTIONS"):
+        body = await request.body()
+        actual_body_hash = hashlib.sha256(body).hexdigest()
+
     _verify_trusted_proxy_headers(
         request=request,
         user_id=x_cadris_user_id,
@@ -108,8 +122,13 @@ def require_user(
         timestamp=x_cadris_auth_timestamp,
         signature=x_cadris_auth_signature,
         body_hash=x_cadris_auth_body_hash,
+        actual_body_hash=actual_body_hash,
     )
 
+    # In production (proxy secret required), email MUST be provided.
+    # The @dev.local fallback is only safe when unsigned requests are allowed.
+    if not x_cadris_user_email and settings.trusted_proxy_secret:
+        raise AppError.unauthorized("Missing x-cadris-user-email header.")
     email = x_cadris_user_email or f"{x_cadris_user_id}@dev.local"
 
     repository = ControlPlaneRepository(session)
