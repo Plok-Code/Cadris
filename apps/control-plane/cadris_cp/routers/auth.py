@@ -5,8 +5,6 @@ import hashlib
 import logging
 import re
 import secrets
-import time
-from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from html import escape
 from uuid import uuid4
@@ -36,26 +34,16 @@ from ..models import (
     RegisterRequest,
     ResetPasswordRequest,
 )
+from ..rate_limit import check_rate_limit
 from ..repository import ControlPlaneRepository
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-# Rate limiter (in-memory, auth-specific)
-_rate_limits: dict[str, list[float]] = defaultdict(list)
-_RATE_WINDOW = 60  # seconds
-_RATE_MAX = 5
-
 
 def _check_rate_limit(key: str) -> bool:
-    now = time.time()
-    bucket = _rate_limits[key]
-    _rate_limits[key] = [t for t in bucket if now - t < _RATE_WINDOW]
-    if len(_rate_limits[key]) >= _RATE_MAX:
-        return False
-    _rate_limits[key].append(now)
-    return True
+    return check_rate_limit(key, max_requests=5, window_seconds=60)
 
 
 _EMAIL_RE = re.compile(r"^[^@\s]{1,128}@[^@\s]{1,128}\.[^@\s]{1,64}$")

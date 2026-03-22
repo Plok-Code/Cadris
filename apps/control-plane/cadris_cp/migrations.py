@@ -40,10 +40,18 @@ def run_sql_migrations(engine: Engine, sql_dir: Path) -> None:
                         try:
                             connection.exec_driver_sql(statement)
                         except Exception as exc:  # noqa: BLE001 — driver errors vary; re-raised if not idempotent
-                            # SQLite doesn't support IF NOT EXISTS for ALTER TABLE.
-                            # Skip "duplicate column" errors from idempotent migrations.
-                            if "duplicate column" in str(exc).lower() or "already exists" in str(exc).lower():
-                                logger.info("Skipping (column already exists): %s", statement[:80])
+                            msg = str(exc).lower()
+                            # Skip known-safe idempotent errors:
+                            # - "duplicate column" — SQLite & Postgres duplicate ADD COLUMN
+                            # - "already exists"   — Postgres "column X already exists"
+                            # - SQLite < 3.35 syntax error on IF NOT EXISTS in ALTER TABLE
+                            is_dup = "duplicate column" in msg or "already exists" in msg
+                            is_sqlite_if_not_exists = (
+                                'near "exists": syntax error' in msg
+                                or 'near "if": syntax error' in msg
+                            )
+                            if is_dup or is_sqlite_if_not_exists:
+                                logger.info("Skipping idempotent DDL: %s", statement[:80])
                             else:
                                 raise
             connection.execute(

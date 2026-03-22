@@ -105,7 +105,7 @@ async def run_critic(
     The critic sees ALL documents (not filtered by reads_from).
     Returns the structured CriticOutput for the caller to act on.
     """
-    from .agent_runner import _build_questions_context
+    from .context_builders import _build_questions_context
     from .prompt_loader import load_prompt
 
     choice = get_model_for_agent(CRITIC_SPEC.code, memory.plan)
@@ -244,12 +244,13 @@ async def run_critic(
         logger.error("critic agent failed: %s", exc, exc_info=True)
         await event_emitter.emit(EventType.ERROR, {
             "agent": CRITIC_SPEC.code,
-            "error": str(exc),
+            "error": "Une erreur interne est survenue. Veuillez reessayer.",
             "iteration": memory.iteration,
         })
-        # Return a safe fallback so the flow doesn't break
+        # Return a safe fallback so the flow doesn't break.
+        # Mark as "unavailable" so the UI can distinguish from a real review.
         return CriticOutput(
-            overall_quality="good",
+            overall_quality="unavailable",
             reviews=[],
             questions_for_user=[],
             synthesis="Evaluation du critique non disponible (erreur interne).",

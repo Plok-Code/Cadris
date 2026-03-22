@@ -30,9 +30,10 @@ def build_trusted_proxy_signature(
     path: str,
     user_id: str,
     user_email: str,
+    body_hash: str = "",
 ) -> str:
     payload = "\n".join(
-        [timestamp, method.upper(), path, user_id, user_email]
+        [timestamp, method.upper(), path, user_id, user_email, body_hash]
     ).encode("utf-8")
     return hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
 
@@ -44,6 +45,7 @@ def _verify_trusted_proxy_headers(
     user_email: str,
     timestamp: str | None,
     signature: str | None,
+    body_hash: str | None,
 ) -> None:
     secret = settings.trusted_proxy_secret
     if not secret:
@@ -74,6 +76,7 @@ def _verify_trusted_proxy_headers(
         path=request.url.path,
         user_id=user_id,
         user_email=user_email,
+        body_hash=body_hash or "",
     )
     if not hmac.compare_digest(expected, signature):
         raise AppError.unauthorized("Invalid trusted proxy signature.")
@@ -85,6 +88,7 @@ def require_user(
     x_cadris_user_email: str | None = Header(default=None),
     x_cadris_auth_timestamp: str | None = Header(default=None),
     x_cadris_auth_signature: str | None = Header(default=None),
+    x_cadris_auth_body_hash: str | None = Header(default=None),
     session: Session = Depends(get_session),
 ) -> AuthenticatedUser:
     if not x_cadris_user_id:
@@ -103,6 +107,7 @@ def require_user(
         user_email=signed_email,
         timestamp=x_cadris_auth_timestamp,
         signature=x_cadris_auth_signature,
+        body_hash=x_cadris_auth_body_hash,
     )
 
     email = x_cadris_user_email or f"{x_cadris_user_id}@dev.local"

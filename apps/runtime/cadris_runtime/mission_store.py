@@ -12,6 +12,7 @@ of truth.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import UTC, datetime, timedelta
@@ -311,3 +312,35 @@ def evict_stale() -> int:
     if stale_ids:
         logger.info("mission_store: evicted %d stale entries", len(stale_ids))
     return len(stale_ids)
+
+
+# ── Async wrappers with per-mission locking ────────────────────
+
+_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_lock(mission_id: str) -> asyncio.Lock:
+    """Return (or create) an asyncio.Lock for the given mission_id."""
+    if mission_id not in _locks:
+        _locks[mission_id] = asyncio.Lock()
+    return _locks[mission_id]
+
+
+async def aget(mission_id: str) -> MissionMemory | None:
+    """Async version of get() with per-mission locking."""
+    async with _get_lock(mission_id):
+        return get(mission_id)
+
+
+async def aput(memory: MissionMemory) -> None:
+    """Async version of put() with per-mission locking."""
+    async with _get_lock(memory.mission_id):
+        put(memory)
+
+
+async def aremove(mission_id: str) -> None:
+    """Async version of remove() with per-mission locking."""
+    lock = _get_lock(mission_id)
+    async with lock:
+        remove(mission_id)
+    _locks.pop(mission_id, None)

@@ -19,7 +19,7 @@ async function emailToUserId(email: string): Promise<string> {
   const prefix = email.split("@")[0].replace(/[^a-zA-Z0-9]/g, "").slice(0, 16);
   const encoded = new TextEncoder().encode(email.toLowerCase());
   const digest = await globalThis.crypto.subtle.digest("SHA-256", encoded);
-  const hash = toHex(digest).slice(0, 12);
+  const hash = toHex(digest).slice(0, 32);
   return `${prefix}-${hash}`;
 }
 

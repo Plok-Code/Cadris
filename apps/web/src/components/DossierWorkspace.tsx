@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import type { DossierReadModel, ExportReadModel } from "@cadris/schemas";
 import { AppShell } from "./AppShell";
@@ -57,13 +58,16 @@ export function DossierWorkspace({
       }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filenameMap[format];
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      try {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filenameMap[format];
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
     } catch (err) {
       setDownloadError(err instanceof Error ? err.message : "Erreur de téléchargement");
     } finally {
@@ -219,7 +223,7 @@ export function DossierWorkspace({
                     <StatusTag code={activeSection.certainty} />
                   </div>
                   <div className="dossier__doc-content markdown-body">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
                       {activeSection.content}
                     </ReactMarkdown>
                   </div>

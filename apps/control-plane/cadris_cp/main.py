@@ -26,6 +26,7 @@ from .routers import (
     auth,
     billing,
     dossiers,
+    generation,
     missions,
     projects,
     shared,
@@ -40,6 +41,18 @@ logger = logging.getLogger(__name__)
 async def lifespan(_: FastAPI):
     run_sql_migrations(engine, Path(__file__).resolve().parent.parent / "sql")
     from sqlalchemy.orm import Session as _Session
+
+    # ── Env-var sanity checks ──────────────────────────────────
+    if not settings.trusted_proxy_secret and not settings.allow_unsigned_requests:
+        logger.warning(
+            "CONTROL_PLANE_TRUSTED_PROXY_SECRET not set and "
+            "CADRIS_ALLOW_UNSIGNED_REQUESTS is false — all authenticated "
+            "requests will be rejected"
+        )
+    if settings.stripe_secret_key and not settings.stripe_webhook_secret:
+        logger.warning(
+            "STRIPE_WEBHOOK_SECRET not set — webhook endpoint will reject all events"
+        )
 
     with _Session(engine) as startup_session:
         repo = ControlPlaneRepository(startup_session)
@@ -90,6 +103,7 @@ app.include_router(billing.router)
 app.include_router(templates.router)
 app.include_router(projects.router)
 app.include_router(missions.router)
+app.include_router(generation.router)
 app.include_router(dossiers.router)
 app.include_router(uploads.router)
 app.include_router(shared.router)

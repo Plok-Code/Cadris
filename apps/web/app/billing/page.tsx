@@ -4,6 +4,11 @@ import { useState, useEffect, Suspense } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+const ALLOWED_STRIPE_ORIGINS = [
+  "https://checkout.stripe.com",
+  "https://billing.stripe.com",
+];
+
 interface PlanInfo {
   name: string;
   label: string;
@@ -124,7 +129,7 @@ function BillingContent() {
         body: JSON.stringify({ plan }),
       });
       const data = await res.json();
-      if (data.url) {
+      if (data.url && ALLOWED_STRIPE_ORIGINS.some(origin => data.url.startsWith(origin))) {
         window.location.href = data.url;
       }
     } catch (err) {
@@ -141,7 +146,7 @@ function BillingContent() {
         method: "POST",
       });
       const data = await res.json();
-      if (data.url) {
+      if (data.url && ALLOWED_STRIPE_ORIGINS.some(origin => data.url.startsWith(origin))) {
         window.location.href = data.url;
       }
     } catch (err) {

@@ -47,12 +47,21 @@ async function proxyToControlPlane(req: Request): Promise<Response> {
     }
   });
 
-  // Inject authenticated user info
+  // Read body once for signature and forwarding
+  let bodyText: string | undefined;
+  let bodyBuffer: ArrayBuffer | undefined;
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    bodyBuffer = await req.arrayBuffer();
+    bodyText = new TextDecoder().decode(bodyBuffer);
+  }
+
+  // Inject authenticated user info (body hash included in HMAC signature)
   const authHeaders = await buildControlPlaneAuthHeaders({
     userId: session.user.id,
     userEmail: session.user.email,
     method: req.method,
-    path: proxyPath
+    path: proxyPath,
+    body: bodyText
   });
   Object.entries(authHeaders).forEach(([key, value]) => {
     headers.set(key, value);
@@ -65,9 +74,8 @@ async function proxyToControlPlane(req: Request): Promise<Response> {
     };
 
     // Forward body for POST/PUT/PATCH/DELETE
-    if (req.method !== "GET" && req.method !== "HEAD") {
-      fetchInit.body = req.body;
-      fetchInit.duplex = "half"; // Required for streaming request bodies
+    if (bodyBuffer !== undefined) {
+      fetchInit.body = bodyBuffer;
     }
 
     const upstream = await fetch(targetUrl, fetchInit);

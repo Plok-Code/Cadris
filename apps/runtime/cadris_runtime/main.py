@@ -62,13 +62,67 @@ async def resume_runtime(payload: RuntimeResumeRequest):
     return await runtime_engine.resume_mission(payload)
 
 
+# ── SSE helpers ───────────────────────────────────────────
+
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
+MISSION_TIMEOUT = 1800  # 30 minutes max per mission stream
+
+
+def _build_fallback_sse(d: dict):
+    """Build a fallback SSE generator from a non-streaming engine result."""
+    async def _gen():
+        for block in d.get("artifact_blocks", []):
+            yield f"event: document_updated\ndata: {json.dumps(block, ensure_ascii=False)}\n\n"
+        questions = d.get("questions", [])
+        if questions:
+            yield f"event: qualification_questions\ndata: {json.dumps({'questions': questions}, ensure_ascii=False)}\n\n"
+        yield f"event: mission_completed\ndata: {json.dumps(d, ensure_ascii=False)}\n\n"
+    return StreamingResponse(_gen(), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+
+def _build_streaming_sse(coro_factory):
+    """Build a streaming SSE response with timeout and error handling.
+
+    coro_factory: async callable(emitter) that runs the engine method.
+    """
+    async def event_generator():
+        emitter = EventEmitter()
+
+        async def _run():
+            try:
+                async with asyncio.timeout(MISSION_TIMEOUT):
+                    await coro_factory(emitter)
+            except TimeoutError:
+                logger.error("mission stream timed out after %ds", MISSION_TIMEOUT)
+                await emitter.emit(EventType.ERROR, {"error": "La mission a depasse le temps limite."})
+            except Exception as exc:  # noqa: BLE001 — SSE must report errors, never drop
+                logger.error("mission stream error: %s", exc, exc_info=True)
+                await emitter.emit(EventType.ERROR, {"error": "Une erreur interne est survenue. Veuillez reessayer."})
+            finally:
+                await emitter.close()
+
+        task = asyncio.create_task(_run())
+
+        async for event in emitter:
+            yield f"event: {event.type.value}\ndata: {json.dumps(event.data, ensure_ascii=False)}\n\n"
+
+        await task
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+
 # ── SSE streaming endpoints ───────────────────────────────
 
 
 @app.get("/internal/runtime/mission/{mission_id}/documents")
 async def get_mission_documents(mission_id: str):
     """Return full document contents for a mission (used by benchmark scoring)."""
-    memory = mission_store.get(mission_id)
+    memory = await mission_store.aget(mission_id)
     if memory is None:
         return {"error": "mission not found", "documents": {}}
     docs = {}
@@ -91,7 +145,7 @@ async def get_mission_documents(mission_id: str):
 async def cleanup_mission(mission_id: str):
     """Remove mission memory and snapshots from runtime."""
     from . import mission_store
-    mission_store.remove(mission_id)
+    await mission_store.aremove(mission_id)
     return {"ok": True}
 
 
@@ -123,52 +177,11 @@ async def submit_feedback(payload: FeedbackRequest):
 async def start_mission_stream(payload: RuntimeStartRequest):
     """Launch a collaborative mission and stream SSE events in real-time."""
     if not isinstance(runtime_engine, CollaborativeEngine):
-        # Fallback: convert Pydantic result into proper SSE events
         result = await runtime_engine.start_mission(payload)
         d = result.model_dump() if hasattr(result, "model_dump") else (result if isinstance(result, dict) else {"ok": True})
+        return _build_fallback_sse(d)
 
-        async def fallback_sse():
-            for block in d.get("artifact_blocks", []):
-                yield f"event: document_updated\ndata: {json.dumps(block, ensure_ascii=False)}\n\n"
-            questions = d.get("questions", [])
-            if questions:
-                yield f"event: qualification_questions\ndata: {json.dumps({'questions': questions}, ensure_ascii=False)}\n\n"
-            yield f"event: mission_completed\ndata: {json.dumps(d, ensure_ascii=False)}\n\n"
-
-        return StreamingResponse(
-            fallback_sse(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
-        )
-
-    async def event_generator():
-        emitter = EventEmitter()
-
-        async def _run():
-            try:
-                await runtime_engine.start_mission_stream(payload, emitter)
-            except Exception as exc:  # noqa: BLE001 — SSE must report errors, never drop
-                logger.error("mission stream error: %s", exc, exc_info=True)
-                await emitter.emit(EventType.ERROR, {"error": str(exc)})
-            finally:
-                await emitter.close()
-
-        task = asyncio.create_task(_run())
-
-        async for event in emitter:
-            yield f"event: {event.type.value}\ndata: {json.dumps(event.data, ensure_ascii=False)}\n\n"
-
-        await task
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return _build_streaming_sse(lambda emitter: runtime_engine.start_mission_stream(payload, emitter))
 
 
 @app.post("/internal/runtime/resume-stream")
@@ -177,46 +190,6 @@ async def resume_mission_stream(payload: RuntimeResumeRequest):
     if not isinstance(runtime_engine, CollaborativeEngine):
         result = await runtime_engine.resume_mission(payload)
         d = result.model_dump() if hasattr(result, "model_dump") else (result if isinstance(result, dict) else {"ok": True})
+        return _build_fallback_sse(d)
 
-        async def fallback_sse():
-            for block in d.get("artifact_blocks", []):
-                yield f"event: document_updated\ndata: {json.dumps(block, ensure_ascii=False)}\n\n"
-            questions = d.get("questions", [])
-            if questions:
-                yield f"event: qualification_questions\ndata: {json.dumps({'questions': questions}, ensure_ascii=False)}\n\n"
-            yield f"event: mission_completed\ndata: {json.dumps(d, ensure_ascii=False)}\n\n"
-
-        return StreamingResponse(
-            fallback_sse(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
-        )
-
-    async def event_generator():
-        emitter = EventEmitter()
-
-        async def _run():
-            try:
-                await runtime_engine.resume_mission_stream(payload, emitter)
-            except Exception as exc:  # noqa: BLE001 — SSE must report errors, never drop
-                logger.error("mission resume stream error: %s", exc, exc_info=True)
-                await emitter.emit(EventType.ERROR, {"error": str(exc)})
-            finally:
-                await emitter.close()
-
-        task = asyncio.create_task(_run())
-
-        async for event in emitter:
-            yield f"event: {event.type.value}\ndata: {json.dumps(event.data, ensure_ascii=False)}\n\n"
-
-        await task
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return _build_streaming_sse(lambda emitter: runtime_engine.resume_mission_stream(payload, emitter))
