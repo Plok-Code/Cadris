@@ -81,8 +81,12 @@ class MissionMemory:
             doc.version = existing.version + 1
         self.documents[doc.doc_id] = doc
 
-    def get_documents_for_agent(self, agent_code: str) -> list[DocumentDraft]:
-        """Return all documents NOT produced by this agent (i.e. what others wrote)."""
+    def get_documents_from_other_agents(self, agent_code: str) -> list[DocumentDraft]:
+        """Return all documents NOT produced by this agent (i.e. what others wrote).
+
+        Named for what it returns (others' work). The inverse —
+        this agent's own documents — is get_documents_by_agent().
+        """
         return [d for d in self.documents.values() if d.agent_code != agent_code]
 
     def get_documents_by_agent(self, agent_code: str) -> list[DocumentDraft]:

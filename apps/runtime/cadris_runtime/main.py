@@ -72,7 +72,9 @@ async def _periodic_eviction() -> None:
     while True:
         await asyncio.sleep(300)
         try:
-            mission_store.evict_stale()
+            # evict_stale() touches the filesystem (persistence) — run it off
+            # the event loop so the periodic sweep can't stall request handling.
+            await asyncio.to_thread(mission_store.evict_stale)
         except Exception:  # noqa: BLE001 — background task must not crash
             logger.exception("periodic eviction failed")
 

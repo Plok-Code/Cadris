@@ -1,31 +1,32 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from .agents import build_supervisor_agent, summarize_sentence
 from .models import (
     ArtifactBlock,
     DossierSection,
-    MissionAgent,
-    MissionMessage,
     MissionQuestion,
-    RuntimeInputItem,
     RuntimeResumeRequest,
     RuntimeResumeResponse,
     RuntimeStartRequest,
     RuntimeStartResponse,
     TimelineItem,
 )
+from .openai_engine_models import (
+    FLOW_DOSSIER_TITLES,
+    ProductDraft,
+    StrategyDraft,
+    SupervisorResumeDraft,
+    SupervisorStartDraft,
+    build_mission_agent,
+    build_mission_message,
+    supporting_inputs_section_fallback,
+    supporting_inputs_task_block,
+)
 from .prompt_loader import load_prompt
-
-FLOW_DOSSIER_TITLES = {
-    "demarrage": "Dossier d'execution - Demarrage",
-    "projet_flou": "Dossier de recadrage",
-    "pivot": "Dossier de pivot",
-}
 
 try:
     from agents import Agent, Runner
@@ -37,64 +38,6 @@ else:
     AGENTS_IMPORT_ERROR = None
 
 T = TypeVar("T", bound=BaseModel)
-
-
-class StrategyDraft(BaseModel):
-    summary: str = Field(description="Lecture courte du probleme, de la cible et de la promesse.")
-
-
-class ProductDraft(BaseModel):
-    summary: str = Field(description="Lecture courte du scope MVP et de ses limites.")
-
-
-class SupervisorStartDraft(BaseModel):
-    mission_summary: str
-    next_step: str
-    question_title: str
-    question_body: str
-    strategy_block_summary: str
-    strategy_block_content: str
-    product_block_summary: str
-    product_block_content: str
-    requirements_block_summary: str
-    requirements_block_content: str
-
-
-class SupervisorResumeDraft(BaseModel):
-    mission_summary: str
-    next_step: str
-    strategy_block_summary: str
-    strategy_block_content: str
-    product_block_summary: str
-    product_block_content: str
-    requirements_block_summary: str
-    requirements_block_content: str
-    dossier_summary: str
-    problem_section: str
-    sources_section: str | None = None
-    mvp_section: str
-    requirements_section: str
-    quality_label: str
-
-
-def supporting_inputs_task_block(inputs: list[RuntimeInputItem]) -> str:
-    if not inputs:
-        return "Sources jointes: aucune"
-
-    lines = ["Sources jointes :"]
-    for item in inputs[:4]:
-        label = item.display_name or item.content
-        excerpt = summarize_sentence(item.preview_text or item.content)
-        lines.append(f"- {label}: {excerpt}")
-    if len(inputs) > 4:
-        lines.append(f"- +{len(inputs) - 4} autre(s) source(s)")
-    return "\n".join(lines)
-
-
-def supporting_inputs_section_fallback(inputs: list[RuntimeInputItem]) -> str:
-    if not inputs:
-        return ""
-    return supporting_inputs_task_block(inputs).replace("Sources jointes :", "Sources jointes exploitees par la mission :")
 
 
 class OpenAIRuntimeEngine:
@@ -217,7 +160,7 @@ class OpenAIRuntimeEngine:
                     summary="Le supervisor a fusionne les notes OpenAI et ouvert une question utile.",
                     prompt_key=supervisor_prompt.key,
                 ),
-                self._agent(
+                build_mission_agent(
                     code="strategy",
                     label="Agent Strategie",
                     role="Clarifie promesse, probleme et cible.",
@@ -226,7 +169,7 @@ class OpenAIRuntimeEngine:
                     prompt_version=strategy_prompt.version,
                     summary=strategy.summary,
                 ),
-                self._agent(
+                build_mission_agent(
                     code="product",
                     label="Agent Produit",
                     role="Reduit le scope vers la tranche verticale utile.",
@@ -237,9 +180,9 @@ class OpenAIRuntimeEngine:
                 ),
             ],
             recent_messages=[
-                self._message(payload.mission_id, "strategy", "Agent Strategie", "start", "Lecture strategie initiale", strategy.summary),
-                self._message(payload.mission_id, "product", "Agent Produit", "start", "Lecture produit initiale", product.summary),
-                self._message(
+                build_mission_message(payload.mission_id, "strategy", "Agent Strategie", "start", "Lecture strategie initiale", strategy.summary),
+                build_mission_message(payload.mission_id, "product", "Agent Produit", "start", "Lecture produit initiale", product.summary),
+                build_mission_message(
                     payload.mission_id,
                     "supervisor",
                     "Supervisor",
@@ -347,7 +290,7 @@ class OpenAIRuntimeEngine:
                     summary="Le supervisor a consolide les sorties OpenAI en premier dossier exploitable.",
                     prompt_key=supervisor_prompt.key,
                 ),
-                self._agent(
+                build_mission_agent(
                     code="strategy",
                     label="Agent Strategie",
                     role="Clarifie promesse, probleme et cible.",
@@ -356,7 +299,7 @@ class OpenAIRuntimeEngine:
                     prompt_version=strategy_prompt.version,
                     summary=strategy.summary,
                 ),
-                self._agent(
+                build_mission_agent(
                     code="product",
                     label="Agent Produit",
                     role="Reduit le scope vers la tranche verticale utile.",
@@ -367,9 +310,9 @@ class OpenAIRuntimeEngine:
                 ),
             ],
             recent_messages=[
-                self._message(payload.mission_id, "strategy", "Agent Strategie", "resume", "Lecture strategie apres reponse", strategy.summary),
-                self._message(payload.mission_id, "product", "Agent Produit", "resume", "Lecture produit apres reponse", product.summary),
-                self._message(
+                build_mission_message(payload.mission_id, "strategy", "Agent Strategie", "resume", "Lecture strategie apres reponse", strategy.summary),
+                build_mission_message(payload.mission_id, "product", "Agent Produit", "resume", "Lecture produit apres reponse", product.summary),
+                build_mission_message(
                     payload.mission_id,
                     "supervisor",
                     "Supervisor",
@@ -429,37 +372,4 @@ class OpenAIRuntimeEngine:
                 ),
             ],
             quality_label=supervisor.quality_label,
-        )
-
-    @staticmethod
-    def _agent(
-        *,
-        code: str,
-        label: str,
-        role: str,
-        status: str,
-        prompt_key: str,
-        prompt_version: str,
-        summary: str,
-    ) -> MissionAgent:
-        return MissionAgent(
-            code=code,
-            label=label,
-            role=role,
-            status=status,
-            prompt_key=prompt_key,
-            prompt_version=prompt_version,
-            summary=summary,
-        )
-
-    @staticmethod
-    def _message(mission_id: str, agent_code: str, agent_label: str, stage: str, title: str, body: str) -> MissionMessage:
-        return MissionMessage(
-            id=f"{mission_id}:{agent_code}:{stage}",
-            agent_code=agent_code,
-            agent_label=agent_label,
-            stage=stage,
-            title=title,
-            body=body,
-            created_at=datetime.now(UTC).isoformat(),
         )

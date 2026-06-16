@@ -121,8 +121,13 @@ async def run_single_wave_cycle(
     await run_wave(wave_num, memory, event_emitter)
 
     # 2. Skip critic for free plan (saves cost + time)
-    if memory.plan == "free":
+    critic_skipped = memory.plan == "free"
+    if critic_skipped:
         logger.info("free plan: skipping critic for wave %d", wave_num)
+        # overall_quality is a neutral placeholder ("good") kept for
+        # backward-compatible free-plan event payloads; the real signal that
+        # no review ran is the critic_skipped flag emitted below + the
+        # synthesis text. Do not treat this as a passed review.
         critic_output = CriticOutput(
             overall_quality="good",
             reviews=[],
@@ -142,6 +147,7 @@ async def run_single_wave_cycle(
         "wave": wave_num,
         "total_waves": len(get_specs_by_wave()),
         "overall_quality": critic_output.overall_quality,
+        "critic_skipped": critic_skipped,
         "questions_for_user": critic_output.questions_for_user,
         "documents_so_far": len(memory.documents),
     })

@@ -31,6 +31,12 @@ class QualificationOutput(BaseModel):
 
 
 # ── Structured output models (one per agent) ───────────────
+#
+# NOTE: do NOT add Field(max_length=...) to these output models. They are
+# serialized into the structured-output JSON schema sent to the provider, and
+# OpenAI's strict mode rejects `maxLength` (Together is also affected), which
+# would break agent calls. Output length is bounded by max_tokens at the
+# provider and by a post-parse ceiling in agent_runner (MAX_DOC_CONTENT_CHARS).
 
 
 class StrategyOutput(BaseModel):

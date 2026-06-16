@@ -1,10 +1,18 @@
 """Model configuration per agent and per pricing plan.
 
-Each plan maps to a set of models and a provider:
+CURRENT reality (what the code actually sends):
 - free    : Llama 3.3 70B via Together AI (cheap, no OpenAI dependency)
 - starter : GPT-4.1 via OpenAI
-- pro     : Claude Opus (strategy+critic) + GPT-4.1 (others) + Perplexity Sonar (business)
-- expert  : Claude Opus everywhere + Perplexity DeepSearch
+- pro     : GPT-4.1 via OpenAI for every agent
+- expert  : GPT-4.1 via OpenAI for every agent
+
+PLANNED (NOT yet wired — there is no Anthropic provider in agent_runner):
+- pro/expert were intended to route strategy+critic (and expert: all agents)
+  to Claude Opus. Until an Anthropic provider is implemented, the "# Opus when
+  available" entries below resolve to GPT-4.1.
+
+IMPORTANT: the billing/pricing page still advertises "Opus". Either implement
+the Anthropic provider here or align that marketing copy — see the audit note.
 
 Dev profile overrides everything to gpt-4.1-nano for fast iteration.
 """

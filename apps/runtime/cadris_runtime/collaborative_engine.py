@@ -12,8 +12,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from .agent_manager import run_consolidation_wave, run_single_wave_cycle, get_specs_by_wave, get_wave_doc_ids
-from .agent_specs import AGENT_SPECS
+from .agent_manager import run_consolidation_wave, run_single_wave_cycle, get_wave_doc_ids
+from .agent_specs import AGENT_SPECS, get_specs_by_wave
 from .event_emitter import EventEmitter
 from .event_types import EventType
 from .memory import MissionMemory
@@ -90,7 +90,15 @@ class CollaborativeEngine:
         # Load persisted memory
         memory = await mission_store.aget(payload.mission_id)
         if memory is None:
-            logger.warning("No stored memory for %s, creating fresh", payload.mission_id)
+            # Memory was lost (runtime restart / TTL eviction). We rebuild a
+            # fresh MissionMemory from the request so the mission can still
+            # proceed, but qualification answers and prior-wave documents are
+            # gone — the resumed wave will run with reduced context.
+            logger.warning(
+                "No stored memory for %s (action=%s) — rebuilding fresh; "
+                "qualification context and prior documents are unavailable",
+                payload.mission_id, payload.action,
+            )
             memory = MissionMemory(
                 mission_id=payload.mission_id,
                 intake_text=payload.intake_text,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -45,14 +46,33 @@ def prompts_root() -> Path:
     return Path(__file__).resolve().parents[3] / "packages" / "prompts"
 
 
-@lru_cache(maxsize=None)  # Permanent cache — server restart required after prompt file changes
-def load_prompt(key: str) -> PromptTemplate:
+def _prompt_reload_enabled() -> bool:
+    """Dev-only: re-read prompt files when they change on disk.
+
+    Off by default (prod keeps a permanent cache — a redeploy is required
+    after editing a prompt). Set CADRIS_PROMPT_RELOAD_ENABLED=true locally to
+    pick up edits without restarting the server.
+    """
+    return os.getenv("CADRIS_PROMPT_RELOAD_ENABLED", "").lower() in ("true", "1", "yes")
+
+
+@lru_cache(maxsize=None)
+def _load_prompt_cached(key: str, _mtime: float) -> PromptTemplate:
+    """Load + parse a prompt. Cache key includes the file mtime so that, when
+    reload is enabled, an edited file produces a new key and is re-read."""
     relative_path = PROMPT_PATHS.get(key)
     if relative_path is None:
         raise KeyError(f"Unknown prompt key: {key}")
 
     raw = (prompts_root() / relative_path).read_text(encoding="utf-8")
-    metadata, instructions = raw.split("---\n", maxsplit=1)
+
+    parts = raw.split("---\n", maxsplit=1)
+    if len(parts) != 2:
+        raise ValueError(
+            f"Prompt {key!r} is missing the '---' metadata separator."
+        )
+    metadata, instructions = parts
+
     values: dict[str, str] = {}
     for line in metadata.strip().splitlines():
         if ":" not in line:
@@ -65,3 +85,27 @@ def load_prompt(key: str) -> PromptTemplate:
         version=values.get("version", "v1"),
         instructions=instructions.strip(),
     )
+
+
+def load_prompt(key: str) -> PromptTemplate:
+    """Return a parsed prompt template, cached permanently in prod.
+
+    In dev (CADRIS_PROMPT_RELOAD_ENABLED), the file mtime is folded into the
+    cache key so edits take effect without a restart.
+    """
+    relative_path = PROMPT_PATHS.get(key)
+    if relative_path is None:
+        raise KeyError(f"Unknown prompt key: {key}")
+
+    mtime = 0.0
+    if _prompt_reload_enabled():
+        try:
+            mtime = (prompts_root() / relative_path).stat().st_mtime
+        except OSError:
+            mtime = 0.0
+    return _load_prompt_cached(key, mtime)
+
+
+def reload_prompts() -> None:
+    """Clear the prompt cache (e.g. from an internal ops/reload endpoint)."""
+    _load_prompt_cached.cache_clear()

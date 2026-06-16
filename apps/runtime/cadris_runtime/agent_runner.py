@@ -68,6 +68,15 @@ else:
 
 T = TypeVar("T", bound=BaseModel)
 
+# Sanity ceiling on a single produced document's length. Output is already
+# bounded by max_tokens (~16384 ≈ <65k chars for the WHOLE response), so this
+# never trims legitimate output (free docs ~3k chars, consolidation ~13k); it
+# is a defensive cap applied AFTER parsing. We deliberately do NOT use Pydantic
+# Field(max_length=...) on the agent output models: that leaks `maxLength` into
+# the structured-output JSON schema, which OpenAI's strict mode rejects and
+# which would break the paid (and free) provider calls.
+MAX_DOC_CONTENT_CHARS = 80_000
+
 # ── Provider clients (lazy-initialized singletons) ────────────
 
 _together_client: AsyncOpenAI | None = None
@@ -107,16 +116,23 @@ def _get_run_config(choice: ModelChoice) -> RunConfig:
             model=choice.model,
             openai_client=client,
         )
-        # Together AI defaults to ~4096 output tokens which truncates
-        # large structured outputs. 10240 tokens gives enough headroom
-        # for the consolidation agent (4 docs) on the free plan.
+        # Together AI defaults to ~4096 output tokens which truncates large
+        # structured outputs. 16384 tokens gives enough headroom for the
+        # consolidation agent (4 docs, 2000+ words) on the free plan; the
+        # tokenizer counts conservatively so this is safe headroom.
         return RunConfig(
             model=model,
             model_settings=ModelSettings(max_tokens=16384),
         )
     else:
         client = _get_openai_client()
-        return RunConfig(model_provider=OpenAIProvider(openai_client=client))
+        # Symmetry with Together: cap output high enough that the
+        # consolidation agent's long structured output is never truncated.
+        # The default SDK ceiling (~4096) silently cuts large docs on paid plans.
+        return RunConfig(
+            model_provider=OpenAIProvider(openai_client=client),
+            model_settings=ModelSettings(max_tokens=16384),
+        )
 
 
 # ── Output parsing ────────────────────────────────────────────
@@ -133,7 +149,20 @@ def _parse_output_to_documents(
     for doc_spec in spec.doc_specs:
         content = output_dict.get(doc_spec.doc_id, "")
         if not content:
+            # Empty field — the agent didn't produce this doc. Skip here and
+            # let the wave-level fallback inject a placeholder, but log it so
+            # silent gaps are observable.
+            logger.warning(
+                "agent %s produced no content for doc %s", spec.code, doc_spec.doc_id
+            )
             continue
+
+        if len(content) > MAX_DOC_CONTENT_CHARS:
+            logger.warning(
+                "agent %s doc %s exceeded %d chars (%d) — truncating",
+                spec.code, doc_spec.doc_id, MAX_DOC_CONTENT_CHARS, len(content),
+            )
+            content = content[:MAX_DOC_CONTENT_CHARS]
 
         certainty = _infer_certainty(content)
 

@@ -23,13 +23,21 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Disabled by default — opt-in via env var to avoid PII leaks
+# Disabled by default — opt-in via env var. When enabled this logs the FULL
+# intake text, user answers and generated documents, which can contain
+# personal data. Do NOT enable in production without a user-consent flow, a
+# retention/purge policy, and (for regulated data: GDPR/HIPAA) legal review.
 TRAINING_ENABLED = os.getenv("CADRIS_TRAINING_ENABLED", "false").lower() in ("true", "1", "yes")
 
 # Store in runtime-local data dir (not project root)
 DATA_DIR = Path(__file__).parent.parent / "data" / "training"
 if TRAINING_ENABLED:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    logger.warning(
+        "CADRIS_TRAINING_ENABLED=true — logging full intake/answers/documents "
+        "(may contain PII) to %s. Ensure user consent + retention policy.",
+        DATA_DIR,
+    )
 
 EVENTS_FILE = DATA_DIR / "events.jsonl"
 FEEDBACK_FILE = DATA_DIR / "feedback.jsonl"

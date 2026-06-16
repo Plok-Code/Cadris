@@ -35,7 +35,9 @@ def is_permanent(exc: Exception) -> bool:
     """Return True if this error will never succeed on retry."""
     if isinstance(exc, _PERMANENT_EXCEPTIONS):
         return True
-    # RateLimitError with "insufficient_quota" means billing issue, not transient
+    # RateLimitError with "insufficient_quota" means billing issue, not transient.
+    # String match is the intentional residual here: the OpenAI/Together SDKs do
+    # not expose a typed sub-error to distinguish quota from transient 429s.
     if isinstance(exc, RateLimitError):
         msg = str(exc).lower()
         return "insufficient_quota" in msg or "billing" in msg
