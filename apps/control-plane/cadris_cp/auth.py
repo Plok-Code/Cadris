@@ -67,6 +67,10 @@ def _verify_trusted_proxy_headers(
         raise AppError.unauthorized("Invalid trusted proxy timestamp.") from exc
 
     now = int(time.time())
+    # 60s replay window (project rule). The signed payload already binds
+    # timestamp + method + path + user + body_hash, so a captured signature
+    # cannot be replayed on a different endpoint/verb or with a tampered body
+    # even within the window — only the exact same request, for <=60s.
     if abs(now - issued_at) > settings.trusted_proxy_max_skew_seconds:
         raise AppError.unauthorized("Expired trusted proxy signature.")
 
@@ -125,8 +129,9 @@ async def require_user(
         actual_body_hash=actual_body_hash,
     )
 
-    # In production (proxy secret required), email MUST be provided.
-    # The @dev.local fallback is only safe when unsigned requests are allowed.
+    # In production (proxy secret set), email MUST be provided — the check
+    # below guarantees the @dev.local fallback can ONLY be reached in dev
+    # (no proxy secret configured), never when a real secret is in play.
     if not x_cadris_user_email and settings.trusted_proxy_secret:
         raise AppError.unauthorized("Missing x-cadris-user-email header.")
     email = x_cadris_user_email or f"{x_cadris_user_id}@dev.local"

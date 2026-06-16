@@ -12,6 +12,7 @@ from ..auth import AuthenticatedUser, require_user
 from ..database import get_session
 from ..dependencies import renderer_client, runtime_client
 from ..errors import AppError
+from ..rate_limit import check_rate_limit
 from ..models import (
     AnswerQuestionRequest,
     AnswerQuestionResponse,
@@ -37,6 +38,14 @@ async def answer_question(
     user: AuthenticatedUser = Depends(require_user),
     session: Session = Depends(get_session),
 ):
+    # Throttle the runtime-backed answer loop. Generous (10 / min) so the
+    # normal user-driven Q&A is never blocked, but scripted abuse is.
+    if not check_rate_limit(f"answer_question:{user.id}", max_requests=10, window_seconds=60):
+        raise AppError.validation(
+            "rate_limited",
+            "Trop de reponses envoyees en peu de temps. Reessayez dans une minute.",
+        )
+
     repository = ControlPlaneRepository(session)
     mission = repository.get_mission_for_user(user.id, mission_id)
     if not mission:
@@ -186,6 +195,14 @@ async def generate_mission_logo(
     if not db_user or db_user.plan not in ("expert",):
         raise AppError.forbidden(
             "La generation de logo necessite le plan Expert.",
+        )
+
+    # Each call hits DALL-E (1-4 paid images). Cap per user to protect the
+    # OpenAI budget from runaway/automated requests. Logo generation is rare.
+    if not check_rate_limit(f"logo_gen:{user.id}", max_requests=5, window_seconds=3600):
+        raise AppError.validation(
+            "rate_limited",
+            "Trop de generations de logo. Reessayez dans une heure.",
         )
 
     import os

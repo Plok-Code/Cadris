@@ -81,6 +81,17 @@ async def lifespan(_: FastAPI):
 
     # ── Env-var sanity checks ──────────────────────────────────
     if not settings.trusted_proxy_secret and not settings.allow_unsigned_requests:
+        # Fail-fast in production (Cloud Run sets K_SERVICE): a deployment
+        # missing the proxy secret would otherwise start "healthy" and reject
+        # 100% of authenticated requests silently. Crash early so the broken
+        # revision never receives traffic.
+        if os.getenv("K_SERVICE"):
+            raise RuntimeError(
+                "CONTROL_PLANE_TRUSTED_PROXY_SECRET is required in production "
+                "(K_SERVICE detected). Refusing to start: every authenticated "
+                "request would be rejected. Set the secret or "
+                "CADRIS_ALLOW_UNSIGNED_REQUESTS=true for local dev only."
+            )
         logger.warning(
             "CONTROL_PLANE_TRUSTED_PROXY_SECRET not set and "
             "CADRIS_ALLOW_UNSIGNED_REQUESTS is false — all authenticated "
@@ -105,8 +116,31 @@ app.add_middleware(
     allow_origins=settings.allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["authorization", "content-type", "x-cadris-user-id", "x-cadris-user-email", "x-cadris-timestamp", "x-cadris-signature", "x-cadris-body-hash"],
+    # Header names MUST match exactly what require_user() reads (auth.py) and
+    # what the web proxy sends (control-plane-auth.ts): the signature headers
+    # carry the "x-cadris-auth-" prefix. A mismatch here makes the browser
+    # preflight strip them on any cross-origin (non-proxied) call.
+    allow_headers=[
+        "authorization",
+        "content-type",
+        "x-cadris-user-id",
+        "x-cadris-user-email",
+        "x-cadris-auth-timestamp",
+        "x-cadris-auth-signature",
+        "x-cadris-auth-body-hash",
+    ],
 )
+
+# Security headers applied to every API response. The control-plane serves
+# JSON/SSE only (never rendered as a document), so a deny-all CSP is correct
+# and gives dev/local parity with the production Caddy reverse proxy.
+_SECURITY_HEADERS = {
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+}
 
 
 @app.middleware("http")
@@ -116,6 +150,8 @@ async def request_id_middleware(request: Request, call_next):
     response: Response = await call_next(request)
     duration_ms = round((time.perf_counter() - start) * 1000, 1)
     response.headers["x-request-id"] = request_id
+    for header_name, header_value in _SECURITY_HEADERS.items():
+        response.headers.setdefault(header_name, header_value)
     logger.info(
         "request completed",
         extra={

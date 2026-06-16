@@ -14,6 +14,7 @@ from ..auth import AuthenticatedUser, require_user
 from ..database import get_session
 from ..dependencies import file_search_client
 from ..errors import AppError
+from ..rate_limit import check_rate_limit
 from ..models import (
     CitationItem,
     DossierReadModel,
@@ -27,6 +28,27 @@ logger = logging.getLogger(__name__)
 
 # Validate section IDs to prevent path traversal in ZIP filenames.
 _VALID_SECTION_ID = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+
+# Strip anything that could break / inject a Content-Disposition header.
+_FILENAME_UNSAFE = re.compile(r"[^a-zA-Z0-9_-]")
+
+
+def _safe_filename_component(value: str) -> str:
+    """Return a filename-safe slug; defense-in-depth even though mission_id is server-generated."""
+    return _FILENAME_UNSAFE.sub("", value) or "dossier"
+
+
+def _enforce_export_rate_limit(user_id: str) -> None:
+    """Throttle resource-heavy export endpoints (PDF/PPTX/ZIP build) per user.
+
+    Generous window (10 / 5 min) — a normal user, free plan included, never
+    hits it; it only blocks scripted abuse that would exhaust CPU/memory.
+    """
+    if not check_rate_limit(f"dossier_export:{user_id}", max_requests=10, window_seconds=300):
+        raise AppError.validation(
+            "rate_limited",
+            "Trop d'exports en peu de temps. Reessayez dans quelques minutes.",
+        )
 
 
 def _safe_zip_path(section_id: str, ext: str = ".md") -> str | None:
@@ -90,6 +112,7 @@ async def get_dossier_pdf(
     session: Session = Depends(get_session),
 ):
     """Download all docs as a ZIP of individual PDF files."""
+    _enforce_export_rate_limit(user.id)
     repository = ControlPlaneRepository(session)
     dossier = repository.get_dossier_for_user(user.id, mission_id)
     if not dossier:
@@ -118,7 +141,7 @@ async def get_dossier_pdf(
     return Response(
         content=buffer.getvalue(),
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="cadris-{mission_id}-pdf.zip"'},
+        headers={"Content-Disposition": f'attachment; filename="cadris-{_safe_filename_component(mission_id)}-pdf.zip"'},
     )
 
 
@@ -132,6 +155,7 @@ async def get_dossier_pptx(
     from pptx import Presentation
     from pptx.util import Inches, Pt
 
+    _enforce_export_rate_limit(user.id)
     repository = ControlPlaneRepository(session)
 
     # PPTX export is reserved for Pro and Expert plans
@@ -182,7 +206,7 @@ async def get_dossier_pptx(
     return Response(
         content=buffer.getvalue(),
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        headers={"Content-Disposition": f'attachment; filename="cadris-{mission_id}.pptx"'},
+        headers={"Content-Disposition": f'attachment; filename="cadris-{_safe_filename_component(mission_id)}.pptx"'},
     )
 
 
@@ -208,6 +232,7 @@ async def get_dossier_markdown(
     session: Session = Depends(get_session),
 ):
     """Download all docs as a ZIP of .md files, organized by folder."""
+    _enforce_export_rate_limit(user.id)
     repository = ControlPlaneRepository(session)
     dossier = repository.get_dossier_for_user(user.id, mission_id)
     if not dossier:
@@ -224,7 +249,7 @@ async def get_dossier_markdown(
     return Response(
         content=zip_bytes,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="cadris-{mission_id}-md.zip"'},
+        headers={"Content-Disposition": f'attachment; filename="cadris-{_safe_filename_component(mission_id)}-md.zip"'},
     )
 
 
@@ -235,6 +260,7 @@ async def get_dossier_zip(
     session: Session = Depends(get_session),
 ):
     """Download all docs as a ZIP of .md files (alias for /markdown)."""
+    _enforce_export_rate_limit(user.id)
     repository = ControlPlaneRepository(session)
     dossier = repository.get_dossier_for_user(user.id, mission_id)
     if not dossier:
@@ -251,7 +277,7 @@ async def get_dossier_zip(
     return Response(
         content=zip_bytes,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="cadris-{mission_id}.zip"'},
+        headers={"Content-Disposition": f'attachment; filename="cadris-{_safe_filename_component(mission_id)}.zip"'},
     )
 
 

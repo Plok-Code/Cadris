@@ -53,10 +53,14 @@ async def _prime_runtime_stream(stream):
     if first_event.get("event") == "error":
         await _close_async_iterator(stream)
         data = first_event.get("data", {})
-        message = data.get("error") if isinstance(data, dict) else None
+        # Log the runtime's internal message server-side only — never surface
+        # it to the client (it may carry stack traces or provider details).
+        internal_message = data.get("error") if isinstance(data, dict) else None
+        if internal_message:
+            logger.error("runtime stream start error: %s", internal_message)
         raise AppError.integration(
             "runtime_stream_error",
-            str(message or "Le runtime a echoue avant de demarrer la mission."),
+            "Le runtime a echoue avant de demarrer la mission.",
             http_status=502,
         )
 
@@ -276,23 +280,29 @@ async def resume_mission_stream(
 
     async def event_generator():
         collected_docs: dict[str, dict] = {}
+        # Hold the stream handle so we can always close it (symmetry with
+        # run_mission_stream): on error or client disconnect the runtime
+        # connection must be torn down, not left dangling.
+        stream = runtime_client.resume_mission_stream(
+            RuntimeResumeRequest(
+                mission_id=mission_id,
+                project_name=project.name,
+                intake_text=mission.intake_text,
+                answer_text=payload.answer_text.strip() if payload.answer_text else "",
+                flow_code=mission.flow_code,
+                plan=user_plan,
+                action=runtime_action,
+            )
+        )
         try:
-            async for event in runtime_client.resume_mission_stream(
-                RuntimeResumeRequest(
-                    mission_id=mission_id,
-                    project_name=project.name,
-                    intake_text=mission.intake_text,
-                    answer_text=payload.answer_text.strip() if payload.answer_text else "",
-                    flow_code=mission.flow_code,
-                    plan=user_plan,
-                    action=runtime_action,
-                )
-            ):
+            async for event in stream:
                 save_sse_state(session, mission_id, event, collected_docs, repository)
                 yield f"event: {event['event']}\ndata: {json.dumps(event['data'], ensure_ascii=False)}\n\n"
         except Exception as exc:  # noqa: BLE001 — SSE must never drop silently
             logger.error("SSE resume stream error: %s", exc, exc_info=True)
             yield f"event: error\ndata: {json.dumps({'error': 'Une erreur interne est survenue.'})}\n\n"
+        finally:
+            await _close_async_iterator(stream)
 
     return StreamingResponse(
         event_generator(),

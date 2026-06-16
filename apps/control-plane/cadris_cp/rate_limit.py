@@ -1,12 +1,18 @@
 """In-memory sliding-window rate limiter with bounded memory.
 
 Limitation: NOT shared across processes. Suitable for single-instance
-or per-container deployments (Cloud Run, single Gunicorn worker).
-For multi-replica setups, replace with Redis-backed counters.
+or per-container deployments (Cloud Run with min/max instances = 1, or a
+single Gunicorn worker). For horizontal scaling (>1 replica) the limits
+become per-instance and can be diluted.
+TODO(scale): back the counters with Redis (atomic INCR + sliding window)
+before running more than one replica, otherwise an attacker can multiply
+their effective quota by the replica count.
 
 Memory safety: keys are evicted on access (lazy) and via periodic
 full sweep. MAX_KEYS caps total entries to prevent unbounded growth
-from enumerated user IDs or IPs.
+from enumerated user IDs or IPs. The cap is intentionally fail-closed
+(reject new keys when full) per the project's fail-closed rule — it is
+set high enough that legitimate concurrency never reaches it.
 """
 from __future__ import annotations
 
@@ -16,7 +22,10 @@ from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
-MAX_KEYS = 10_000  # hard cap on distinct rate-limit keys
+# Hard cap on distinct rate-limit keys. Sized for a large active-user burst
+# so a real workload never trips it; only a key-spray attack would, and that
+# is exactly when fail-closed rejection is the safe behavior.
+MAX_KEYS = 100_000
 
 _buckets: dict[str, list[float]] = defaultdict(list)
 _last_sweep: float = 0.0

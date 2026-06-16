@@ -130,11 +130,14 @@ async def download_mission_input(
     if not path.resolve().is_relative_to(settings.uploads_dir.resolve()):
         raise AppError.internal(message="Invalid storage path.")
 
-    # Force download (Content-Disposition: attachment) to prevent
-    # stored XSS via uploaded HTML/SVG files rendered in browser.
+    # Force download to prevent stored XSS via uploaded HTML/SVG files
+    # rendered in the browser. FileResponse defaults to
+    # Content-Disposition: attachment and percent-encodes the filename
+    # (filename*) whenever it contains special characters, so we must NOT
+    # build the header by hand — that would allow header injection through
+    # a crafted upload name (quotes/newlines in display_name).
     return FileResponse(
         path,
         media_type="application/octet-stream",
         filename=record.display_name,
-        headers={"Content-Disposition": f'attachment; filename="{record.display_name}"'},
     )
