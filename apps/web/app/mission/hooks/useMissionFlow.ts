@@ -10,6 +10,8 @@ import { createHandleQualAnswer } from "./handlers/qualificationHandlers";
 import { createHandleValidateDoc, createHandleCorrectDoc, createHandleClearCorrection, createContinueToNextWave } from "./handlers/docReviewHandlers";
 import { createHandleDownload } from "./handlers/downloadHandlers";
 
+// 3 corrections per block is the locked free-plan rule. If correction limits
+// ever become plan-based, move this to a server-provided mission/billing value.
 const MAX_CORRECTIONS_PER_BLOCK = 3;
 
 export function useMissionFlow() {
@@ -50,6 +52,9 @@ export function useMissionFlow() {
   const canCorrect = correctionsLeft > 0;
   const [downloadingFormat, setDownloadingFormat] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  // streamDisconnected + handleReconnect are exposed for the mission UI to wire
+  // a "reconnect" affordance during wave_running (SSE-resilience, in progress).
+  // Returned from the hook below — not dead code; the consuming view renders it.
   const [streamDisconnected, setStreamDisconnected] = useState(false);
 
   const isMissionActive = phase === "wave_running" || phase === "qualifying" || phase === "qualification";
@@ -157,8 +162,9 @@ export function useMissionFlow() {
       await cadrisApi.streamMission(intakeText, handleEvent, "demarrage", selectedTemplate !== "standard" ? selectedTemplate : undefined);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Erreur inconnue";
-      if (msg.includes("limite") || msg.includes("limit") || msg.includes("quota")) setPhase("quota_reached");
-      else if (msg.includes("timeout") || msg.includes("perdue") || msg.includes("network")) {
+      const lower = msg.toLowerCase();
+      if (lower.includes("limite") || lower.includes("limit") || lower.includes("quota")) setPhase("quota_reached");
+      else if (lower.includes("timeout") || lower.includes("perdue") || lower.includes("network")) {
         // Stream disconnected — show reconnect option instead of resetting to intake
         setStreamDisconnected(true);
         setError("Connexion perdue. Vous pouvez recharger l'état de la mission.");
@@ -177,7 +183,8 @@ export function useMissionFlow() {
     try { await cadrisApi.resumeMissionStream(resumeId, "", "next_wave", handleEvent); }
     catch (err) {
       const msg = err instanceof Error ? err.message : "Erreur lors de la reprise";
-      if (msg.includes("timeout") || msg.includes("perdue") || msg.includes("network")) {
+      const lower = msg.toLowerCase();
+      if (lower.includes("timeout") || lower.includes("perdue") || lower.includes("network")) {
         setStreamDisconnected(true);
         setError("Connexion perdue. Vous pouvez recharger l'état de la mission.");
       } else {

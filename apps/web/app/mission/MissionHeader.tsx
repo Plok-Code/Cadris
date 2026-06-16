@@ -31,8 +31,13 @@ export function MissionHeader({ isActive, onQuit }: MissionHeaderProps) {
       </header>
       {showConfirm && (
         <div className="mission-header__confirm-overlay">
-          <div className="mission-header__confirm">
-            <p>Votre progression sera sauvegardée. Quitter ?</p>
+          <div
+            className="mission-header__confirm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="mission-quit-confirm-title"
+          >
+            <p id="mission-quit-confirm-title">Votre progression sera sauvegardée. Quitter ?</p>
             <div className="mission-header__confirm-actions">
               <button className="mission-header__confirm-cancel" onClick={() => setShowConfirm(false)}>
                 Rester

@@ -28,6 +28,7 @@ export function IntakePhase({
         value={intakeText}
         onChange={(e) => setIntakeText(e.target.value)}
         rows={6}
+        maxLength={5000}
       />
       <div className="mission__template-select">
         <label className="mission__template-label" htmlFor="template">

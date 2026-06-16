@@ -151,7 +151,7 @@ export function DossierWorkspace({
           <div className="dossier-page">
             {/* Sticky sidebar */}
             <aside className="dossier-page__sidebar">
-              <h3 className="dossier__sidebar-title">Sommaire</h3>
+              <h3 className="dossier__sidebar-title">Sommaire ({orderedSections.length} docs)</h3>
               <nav className="dossier__nav">
                 {orderedSections.map((section, i) => (
                   <button

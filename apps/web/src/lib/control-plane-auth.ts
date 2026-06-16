@@ -42,6 +42,10 @@ export async function buildControlPlaneAuthHeaders({
     "x-cadris-user-id": userId
   };
 
+  // Only .trim() here (no lowercasing): the SAME value is sent in the
+  // x-cadris-user-email header and folded into the HMAC payload, and the
+  // control-plane verifies with the header it receives — so both sides agree.
+  // The control-plane lowercases separately when deriving the user id.
   const normalizedEmail = userEmail?.trim() ?? "";
   if (normalizedEmail) {
     headers["x-cadris-user-email"] = normalizedEmail;

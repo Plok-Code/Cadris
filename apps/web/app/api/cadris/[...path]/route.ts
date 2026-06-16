@@ -56,7 +56,9 @@ async function proxyToControlPlane(req: Request): Promise<Response> {
   const decodedPath = decodeURIComponent(rawProxyPath);
   const normalizedPath = new URL(decodedPath, "http://dummy").pathname;
 
-  // Reject path traversal: if normalized path differs from decoded, someone is playing tricks
+  // Reject path traversal (auth-04). The triple-check is intentional defense-in-depth:
+  // (1) decode %2e%2e, (2) compare against the URL-normalized form, (3) explicit
+  // ".." scan — so an attacker can't smuggle ../internal/... past the allowlist.
   if (normalizedPath !== decodedPath || decodedPath.includes("..")) {
     return Response.json(
       { error: "forbidden", message: "Chemin non autorisé." },
@@ -77,6 +79,16 @@ async function proxyToControlPlane(req: Request): Promise<Response> {
     );
   }
 
+  // Defense-in-depth: the Stripe webhook is authenticated by Stripe's own
+  // signature on the control-plane and must never be reachable through this
+  // session-authenticated proxy (auth-02).
+  if (proxyPath.startsWith("/api/billing/webhook")) {
+    return Response.json(
+      { error: "forbidden", message: "Chemin non autorisé." },
+      { status: 403 }
+    );
+  }
+
   // --- Body size limit ---
   // Check content-length header first (fast path), but also enforce
   // the limit when actually reading the body (defense against chunked
@@ -89,6 +101,10 @@ async function proxyToControlPlane(req: Request): Promise<Response> {
     );
   }
 
+  // Note (auth-01): the query string (url.search) is forwarded but is NOT part
+  // of the HMAC signature — the signed payload uses only the path, matching the
+  // control-plane which signs request.url.path. This is intentional; never put
+  // auth-sensitive data in query params — authorize them server-side instead.
   const targetUrl = `${CONTROL_PLANE_URL}${proxyPath}${url.search}`;
 
   // Build headers: keep original but inject auth and strip cookies

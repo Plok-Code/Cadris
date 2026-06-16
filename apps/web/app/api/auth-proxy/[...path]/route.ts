@@ -23,7 +23,9 @@ async function proxyToAuth(req: Request): Promise<Response> {
     );
   }
 
-  // Strict allowlist — only known auth endpoints
+  // Strict allowlist — EXACT match against known auth endpoints (web-auth-path-01).
+  // Exact-match (not startsWith) means URL-normalization quirks can't smuggle a
+  // path past the check: anything not in the list is rejected outright.
   if (!ALLOWED_AUTH_PATHS.includes(decodedPath)) {
     return Response.json(
       { error: "forbidden", message: "Chemin non autorisé." },
