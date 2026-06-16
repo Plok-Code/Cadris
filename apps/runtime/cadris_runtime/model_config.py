@@ -1,18 +1,17 @@
 """Model configuration per agent and per pricing plan.
 
-CURRENT reality (what the code actually sends):
-- free    : Llama 3.3 70B via Together AI (cheap, no OpenAI dependency)
-- starter : GPT-4.1 via OpenAI
-- pro     : GPT-4.1 via OpenAI for every agent
-- expert  : GPT-4.1 via OpenAI for every agent
+BETA PHASE — UNIFIED MODEL (deliberate product decision):
+Every plan currently runs on the FREE model (Llama 3.3 70B via Together AI).
+The paid plans keep their richer ORCHESTRATION (critic pass, deeper document
+targets, web research) but use the same model as free, so we can measure
+whether the orchestration alone moves quality before paying for a stronger
+model. Once that comparison is done, restore per-plan models (and wire an
+Anthropic/Opus provider for pro/expert) — the original mapping is preserved
+in the comments below for a one-line revert.
 
-PLANNED (NOT yet wired — there is no Anthropic provider in agent_runner):
-- pro/expert were intended to route strategy+critic (and expert: all agents)
-  to Claude Opus. Until an Anthropic provider is implemented, the "# Opus when
-  available" entries below resolve to GPT-4.1.
-
-IMPORTANT: the billing/pricing page still advertises "Opus". Either implement
-the Anthropic provider here or align that marketing copy — see the audit note.
+NOTE: the billing/pricing page advertises stronger models for paid plans; that
+promise is intentionally on hold during this beta. Align the copy or restore
+the models before charging for "bigger model" tiers.
 
 Dev profile overrides everything to gpt-4.1-nano for fast iteration.
 """
@@ -39,21 +38,25 @@ class ModelChoice:
 # Key: (plan, agent_code) → ModelChoice
 # Falls back to (plan, "default") if agent_code not found.
 
+# The single free model every plan uses during the unified-model beta.
+_FREE_MODEL = ModelChoice("meta-llama/Llama-3.3-70B-Instruct-Turbo", "together")
+
 _PLAN_MODELS: dict[str, dict[str, ModelChoice]] = {
+    # BETA: all plans share the free model. To restore per-plan models, swap the
+    # paid "default" values back to the commented originals below.
     "free": {
-        "default": ModelChoice("meta-llama/Llama-3.3-70B-Instruct-Turbo", "together"),
+        "default": _FREE_MODEL,
     },
     "starter": {
-        "default": ModelChoice("gpt-4.1", "openai"),
+        "default": _FREE_MODEL,  # restore: ModelChoice("gpt-4.1", "openai")
     },
     "pro": {
-        "default": ModelChoice("gpt-4.1", "openai"),
-        "strategy": ModelChoice("gpt-4.1", "openai"),  # Opus when available
-        "critic": ModelChoice("gpt-4.1", "openai"),     # Opus when available
+        "default": _FREE_MODEL,  # restore: ModelChoice("gpt-4.1", "openai")
+        # restore: "strategy"/"critic" → Opus when an Anthropic provider exists.
         # "business": Perplexity Sonar — handled at agent level
     },
     "expert": {
-        "default": ModelChoice("gpt-4.1", "openai"),  # Opus when available
+        "default": _FREE_MODEL,  # restore: gpt-4.1 / Opus everywhere
         # "business": Perplexity DeepSearch — handled at agent level
     },
 }

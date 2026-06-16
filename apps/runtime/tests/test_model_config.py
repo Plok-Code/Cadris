@@ -23,9 +23,13 @@ class TestGetModelForAgent:
         assert choice.provider == "together"
         assert "Llama" in choice.model or "llama" in choice.model
 
-    def test_starter_plan_uses_openai(self):
-        choice = get_model_for_agent("strategy", "starter")
-        assert choice.provider == "openai"
+    def test_paid_plans_use_free_model_during_beta(self):
+        """BETA: every paid plan runs on the same free model (Together/Llama)
+        so we can compare orchestration without the stronger-model confound."""
+        for plan in ("starter", "pro", "expert"):
+            choice = get_model_for_agent("strategy", plan)
+            assert choice.provider == "together", f"{plan} should use the free model in beta"
+            assert "lama" in choice.model.lower()
 
     def test_unknown_plan_falls_back_to_free(self):
         choice = get_model_for_agent("strategy", "nonexistent_plan")
