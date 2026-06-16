@@ -78,3 +78,66 @@ def test_render_pdf():
     assert response.headers["content-type"] == "application/pdf"
     # PDF files start with %PDF
     assert response.content[:5] == b"%PDF-"
+
+
+# ── Internal auth (renderer-internal-paths-001) ──────────────────────
+
+
+def test_internal_auth_rejects_request_without_secret(monkeypatch):
+    # When a secret is configured, /internal/* is fail-closed without the header.
+    monkeypatch.setenv("CADRIS_INTERNAL_SECRET", "test-internal-secret")
+    response = client.post("/internal/renderer/markdown", json=SAMPLE_PAYLOAD)
+    assert response.status_code == 401
+
+
+def test_internal_auth_accepts_matching_secret(monkeypatch):
+    monkeypatch.setenv("CADRIS_INTERNAL_SECRET", "test-internal-secret")
+    response = client.post(
+        "/internal/renderer/markdown",
+        json=SAMPLE_PAYLOAD,
+        headers={"x-cadris-internal-secret": "test-internal-secret"},
+    )
+    assert response.status_code == 200
+
+
+def test_internal_auth_rejects_wrong_secret(monkeypatch):
+    monkeypatch.setenv("CADRIS_INTERNAL_SECRET", "test-internal-secret")
+    response = client.post(
+        "/internal/renderer/markdown",
+        json=SAMPLE_PAYLOAD,
+        headers={"x-cadris-internal-secret": "wrong"},
+    )
+    assert response.status_code == 401
+
+
+# ── Input limits (rend-input-001 / rend-list-001 / renderer-pdf-timeout-001) ──
+
+
+def test_oversized_pdf_payload_rejected_413():
+    big = {
+        **SAMPLE_PAYLOAD,
+        "sections": [
+            {"id": f"sec{i}", "title": "Big", "content": "x" * 40_000, "certainty": "solid"}
+            for i in range(20)  # 20 * 40k = 800k > 500k ceiling
+        ],
+    }
+    response = client.post("/internal/renderer/pdf", json=big)
+    assert response.status_code == 413
+
+
+def test_too_many_sections_rejected_422():
+    big = {
+        **SAMPLE_PAYLOAD,
+        "sections": [
+            {"id": "s", "title": "T", "content": "c", "certainty": "solid"}
+            for _ in range(501)  # exceeds max_items=500
+        ],
+    }
+    response = client.post("/internal/renderer/markdown", json=big)
+    assert response.status_code == 422
+
+
+def test_overlong_field_rejected_422():
+    payload = {**SAMPLE_PAYLOAD, "title": "x" * 600}  # title max_length=500
+    response = client.post("/internal/renderer/markdown", json=payload)
+    assert response.status_code == 422
