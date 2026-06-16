@@ -1,30 +1,40 @@
 from __future__ import annotations
 
+import hmac
 import io
 import logging
+import os
+import time
+from collections import deque
 from html import escape
 
 import bleach
 import markdown as md_lib
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
+# Hard ceiling on total payload text before PDF rendering (xhtml2pdf can OOM
+# on very large inputs). Sum of all section content + summary.
+MAX_TOTAL_CONTENT_CHARS = 500_000
 
+
+# Field limits mirror the control-plane DossierSection (models/mission.py).
+# Keep these in sync — both sit on the same wire boundary.
 class DossierSection(BaseModel):
-    id: str
-    title: str
-    content: str
-    certainty: str
+    id: str = Field(max_length=128)
+    title: str = Field(max_length=500)
+    content: str = Field(max_length=50_000)
+    certainty: str = Field(max_length=20)
 
 
 class RendererRequest(BaseModel):
-    title: str
-    summary: str
-    quality_label: str | None = None
-    sections: list[DossierSection]
+    title: str = Field(max_length=500)
+    summary: str = Field(max_length=20_000)
+    quality_label: str | None = Field(default=None, max_length=100)
+    sections: list[DossierSection] = Field(default_factory=list, max_length=500)
 
 
 class RendererResponse(BaseModel):
@@ -36,6 +46,68 @@ class HtmlResponse(BaseModel):
 
 
 app = FastAPI(title="Cadris Renderer", version="0.1.0")
+
+_INTERNAL_HEADER = "x-cadris-internal-secret"
+
+
+async def verify_internal_request(request: Request) -> None:
+    """Service-to-service guard — mirrors the runtime's verify_internal_request.
+
+    The renderer is only ever called by the control-plane over the internal
+    network. Fail-closed: reject unless the shared CADRIS_INTERNAL_SECRET
+    matches, or CADRIS_ALLOW_UNSIGNED_REQUESTS=true (dev only). Env is read at
+    request time so tests/dev can opt in without import-order coupling.
+    """
+    secret = os.getenv("CADRIS_INTERNAL_SECRET") or None
+    if not secret:
+        if os.getenv("CADRIS_ALLOW_UNSIGNED_REQUESTS", "").lower() == "true":
+            return
+        logger.error(
+            "CADRIS_INTERNAL_SECRET not set and CADRIS_ALLOW_UNSIGNED_REQUESTS "
+            "is not true — rejecting renderer request"
+        )
+        raise HTTPException(status_code=401, detail="Server misconfigured — auth secret missing")
+    provided = request.headers.get(_INTERNAL_HEADER, "")
+    if not provided or not hmac.compare_digest(provided, secret):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+
+# Lightweight per-client rate limiter (defense-in-depth; the renderer is
+# internal + authenticated, so limits are generous). Bounded to avoid growth.
+_RATE_BUCKETS: dict[str, deque[float]] = {}
+_RATE_MAX_REQUESTS = 60
+_RATE_WINDOW_SECONDS = 60.0
+_RATE_MAX_KEYS = 1_000
+
+
+def _rate_limited(client_ip: str) -> bool:
+    now = time.time()
+    bucket = _RATE_BUCKETS.get(client_ip)
+    if bucket is None:
+        if len(_RATE_BUCKETS) >= _RATE_MAX_KEYS:
+            return True  # fail-closed if the key table is saturated
+        bucket = _RATE_BUCKETS[client_ip] = deque()
+    while bucket and now - bucket[0] > _RATE_WINDOW_SECONDS:
+        bucket.popleft()
+    if len(bucket) >= _RATE_MAX_REQUESTS:
+        return True
+    bucket.append(now)
+    return False
+
+
+def _enforce_rate_limit(request: Request) -> None:
+    client_ip = request.client.host if request.client else "unknown"
+    if _rate_limited(client_ip):
+        raise HTTPException(status_code=429, detail="Too many renderer requests")
+
+
+def _reject_if_oversized(payload: RendererRequest) -> None:
+    total = len(payload.summary) + sum(len(s.content) for s in payload.sections)
+    if total > MAX_TOTAL_CONTENT_CHARS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Dossier too large to render ({total} chars > {MAX_TOTAL_CONTENT_CHARS}).",
+        )
 
 
 CSS_TEMPLATE = """
@@ -229,17 +301,33 @@ async def healthcheck():
 
 
 @app.post("/internal/renderer/markdown", response_model=RendererResponse)
-async def render_markdown(payload: RendererRequest):
+async def render_markdown(
+    payload: RendererRequest,
+    request: Request,
+    _auth: None = Depends(verify_internal_request),
+):
+    _enforce_rate_limit(request)
     return RendererResponse(markdown=build_markdown(payload))
 
 
 @app.post("/internal/renderer/html", response_model=HtmlResponse)
-async def render_html(payload: RendererRequest):
+async def render_html(
+    payload: RendererRequest,
+    request: Request,
+    _auth: None = Depends(verify_internal_request),
+):
+    _enforce_rate_limit(request)
     return HtmlResponse(html=build_html(payload))
 
 
 @app.post("/internal/renderer/pdf")
-async def render_pdf(payload: RendererRequest):
+async def render_pdf(
+    payload: RendererRequest,
+    request: Request,
+    _auth: None = Depends(verify_internal_request),
+):
+    _enforce_rate_limit(request)
+    _reject_if_oversized(payload)
     from xhtml2pdf import pisa
 
     html_content = build_html(payload)

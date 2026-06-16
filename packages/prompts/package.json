@@ -1,5 +1,12 @@
 {
   "name": "@cadris/prompts",
   "private": true,
-  "version": "0.1.0"
+  "version": "0.1.0",
+  "description": "Cadris agent prompt corpus (loaded from disk by the runtime prompt_loader).",
+  "files": [
+    "agents/",
+    "demarrage/",
+    "pivot/",
+    "projet_flou/"
+  ]
 }

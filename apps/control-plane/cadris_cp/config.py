@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     renderer_url: str = Field(default="http://127.0.0.1:8002", alias="CONTROL_PLANE_RENDERER_URL")
     trusted_proxy_secret: str | None = Field(default=None, alias="CONTROL_PLANE_TRUSTED_PROXY_SECRET")
     allow_unsigned_requests: bool = Field(default=False, alias="CADRIS_ALLOW_UNSIGNED_REQUESTS")
+    # Shared secret for service-to-service calls (control-plane → runtime/renderer).
+    # Sent as x-cadris-internal-secret; the callee verifies it (defense-in-depth
+    # on top of Cloud Run IAM). Harmless when unset (callee runs unsigned in dev).
+    internal_secret: str | None = Field(default=None, alias="CADRIS_INTERNAL_SECRET")
     trusted_proxy_max_skew_seconds: int = Field(default=60, alias="CONTROL_PLANE_TRUSTED_PROXY_MAX_SKEW_SECONDS")
 
     allowed_origins: Annotated[list[str], BeforeValidator(_parse_origins)] = Field(

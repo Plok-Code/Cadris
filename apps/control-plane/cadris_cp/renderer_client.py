@@ -11,7 +11,10 @@ from .request_context import get_request_id
 class RendererClient:
     async def _headers(self) -> dict[str, str]:
         token = await get_id_token(settings.renderer_url)
-        return {"x-request-id": get_request_id(), **auth_headers(token)}
+        headers = {"x-request-id": get_request_id(), **auth_headers(token)}
+        if settings.internal_secret:
+            headers["x-cadris-internal-secret"] = settings.internal_secret
+        return headers
 
     async def render_markdown(self, payload: RendererRequest) -> RendererResponse:
         headers = await self._headers()

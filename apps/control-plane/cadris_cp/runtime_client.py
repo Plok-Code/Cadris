@@ -22,7 +22,10 @@ logger = logging.getLogger(__name__)
 class RuntimeClient:
     async def _headers(self) -> dict[str, str]:
         token = await get_id_token(settings.runtime_url)
-        return {"x-request-id": get_request_id(), **auth_headers(token)}
+        headers = {"x-request-id": get_request_id(), **auth_headers(token)}
+        if settings.internal_secret:
+            headers["x-cadris-internal-secret"] = settings.internal_secret
+        return headers
 
     async def start_mission(self, payload: RuntimeStartRequest) -> RuntimeStartResponse:
         headers = await self._headers()
