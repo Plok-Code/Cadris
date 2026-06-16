@@ -132,8 +132,8 @@ app.add_middleware(
 )
 
 # Security headers applied to every API response. The control-plane serves
-# JSON/SSE only (never rendered as a document), so a deny-all CSP is correct
-# and gives dev/local parity with the production Caddy reverse proxy.
+# JSON/SSE for the API, so a deny-all CSP is correct there and gives dev/local
+# parity with the production Caddy reverse proxy.
 _SECURITY_HEADERS = {
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
     "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
@@ -141,6 +141,15 @@ _SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
 }
+
+# Exception: the public share-link endpoint (/api/shared/*) returns a
+# self-contained HTML document with an inline <style> block. The deny-all API
+# CSP would leave it completely unstyled, so this path gets a relaxed CSP that
+# permits inline styles + images while still blocking scripts and framing.
+_SHARED_HTML_CSP = (
+    "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data: https:; "
+    "frame-ancestors 'none'; base-uri 'none'"
+)
 
 
 @app.middleware("http")
@@ -152,6 +161,9 @@ async def request_id_middleware(request: Request, call_next):
     response.headers["x-request-id"] = request_id
     for header_name, header_value in _SECURITY_HEADERS.items():
         response.headers.setdefault(header_name, header_value)
+    # Shared dossier HTML needs inline styles — relax CSP for that path only.
+    if request.url.path.startswith("/api/shared"):
+        response.headers["Content-Security-Policy"] = _SHARED_HTML_CSP
     logger.info(
         "request completed",
         extra={

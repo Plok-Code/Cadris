@@ -122,6 +122,13 @@ class TestSharedDossierAccess:
         assert "javascript:alert" not in resp.text.lower()
         assert "Contenu legitime" in resp.text
 
+        # Regression guard: the shared HTML embeds an inline <style>; the API
+        # deny-all CSP must be relaxed for /api/shared so the page is styled
+        # (style-src 'unsafe-inline') but scripts stay blocked (no 'script-src).
+        csp = resp.headers.get("content-security-policy", "")
+        assert "style-src 'unsafe-inline'" in csp
+        assert "script-src" not in csp
+
 
 class TestRevokeExport:
     def test_revoke_nonexistent_export_404(self, client, auth_headers):

@@ -71,14 +71,22 @@ $controlUrl = "http://127.0.0.1:8000/health"
 $webUrl = "http://127.0.0.1:$resolvedWebPort/projects"
 
 try {
+  # Local dev: services accept unsigned service-to-service / proxy calls.
+  # The renderer in particular loads no .env, so it MUST get this here or its
+  # fail-closed internal-auth guard would reject the control-plane and break
+  # dossier rendering locally.
   $runtimeService = Start-BackgroundService -Root $root -Name "runtime" -Workdir (Join-Path $root "apps\runtime") -Environment @{
     CADRIS_RUNTIME_PROVIDER = $Provider
+    CADRIS_ALLOW_UNSIGNED_REQUESTS = "true"
   } -Command "python -m uvicorn cadris_runtime.main:app --port 8001"
 
-  $rendererService = Start-BackgroundService -Root $root -Name "renderer" -Workdir (Join-Path $root "apps\renderer") -Environment @{} -Command "python -m uvicorn app.main:app --port 8002"
+  $rendererService = Start-BackgroundService -Root $root -Name "renderer" -Workdir (Join-Path $root "apps\renderer") -Environment @{
+    CADRIS_ALLOW_UNSIGNED_REQUESTS = "true"
+  } -Command "python -m uvicorn app.main:app --port 8002"
 
   $controlService = Start-BackgroundService -Root $root -Name "control-plane" -Workdir (Join-Path $root "apps\control-plane") -Environment @{
     CONTROL_PLANE_ALLOWED_ORIGINS = "http://127.0.0.1:$resolvedWebPort,http://localhost:$resolvedWebPort"
+    CADRIS_ALLOW_UNSIGNED_REQUESTS = "true"
   } -Command "python -m uvicorn cadris_cp.main:app --port 8000"
 
   $webService = Start-BackgroundService -Root $root -Name "web" -Workdir $root -Environment @{
