@@ -20,6 +20,6 @@
 
 ## Infrastructure
 - Docker : non-root, .dockerignore, pas de secrets dans l'image.
-- HSTS + CSP + X-Frame-Options + X-Content-Type-Options dans le reverse proxy.
+- HSTS + CSP + X-Frame-Options + X-Content-Type-Options : appliques par le reverse proxy Caddy en prod ET par un middleware dans `apps/control-plane/cadris_cp/main.py` (parite dev, l'API JSON/SSE utilise une CSP deny-all).
 - Secrets separes : NEXTAUTH_SECRET != TRUSTED_PROXY_SECRET.
 - Tokens de partage : hashes en DB, jamais en clair. Expiration obligatoire.

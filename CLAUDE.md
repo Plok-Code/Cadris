@@ -17,7 +17,7 @@
 ## Regles critiques
 - **Plan free VERROUILLE** : ne JAMAIS modifier le flow free sans confirmation explicite.
 - **Git** : branche dediee par feature, commit dessus, push, merge dans main. Jamais commit direct sur main.
-- **Securite** : fail-closed par defaut, non-root Docker, .dockerignore, HSTS+CSP, replay window 60s.
+- **Securite** : fail-closed par defaut, non-root Docker, .dockerignore, HSTS+CSP (Caddy en prod + middleware control-plane pour parite dev), replay window 60s.
 - **Pas de secrets dans le code** : tout dans .env, jamais dans le source.
 
 ## Fichiers cles

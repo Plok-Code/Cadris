@@ -222,6 +222,15 @@ echo "  ✅ All images built"
 
 # ── 4. Deploy renderer (internal) ─────────────────────────────────
 echo "[4/7] Deploying renderer..."
+# The renderer verifies CADRIS_INTERNAL_SECRET on its /internal/* endpoints
+# (fail-closed). It MUST match the control-plane's value or rendering breaks.
+RENDERER_SECRETS_FLAG=""
+if [ "${USE_SECRET_MANAGER}" = "true" ]; then
+  RENDERER_SECRETS_FLAG=$(build_secrets_flag \
+    "CADRIS_INTERNAL_SECRET=cadris-internal-secret" \
+  )
+fi
+
 gcloud run deploy cadris-renderer \
   --image "${AR_REPO}/renderer:${IMAGE_TAG}" \
   --region "${REGION}" \
@@ -233,6 +242,7 @@ gcloud run deploy cadris-renderer \
   --min-instances 0 \
   --max-instances 2 \
   --no-allow-unauthenticated \
+  ${RENDERER_SECRETS_FLAG:-$(echo "--set-env-vars=CADRIS_INTERNAL_SECRET=${INTERNAL_SECRET}")} \
   --quiet
 
 RENDERER_URL="$(gcloud run services describe cadris-renderer \
@@ -280,6 +290,11 @@ RUNTIME_URL="$(gcloud run services describe cadris-runtime \
 echo "  ✅ Runtime: ${RUNTIME_URL}"
 
 # ── 6. Deploy control-plane (public) ──────────────────────────────
+# NOTE (placeholder window): CONTROL_PLANE_ALLOWED_ORIGINS / FRONTEND_URL are
+# set to PLACEHOLDER here because the web URL isn't known until step 7, then
+# corrected in step 8. The brief window only affects browser-DIRECT CORS calls
+# (e.g. /api/billing/* via Caddy); the main web→control-plane traffic goes
+# through the Next.js server proxy (server-to-server, not subject to CORS).
 echo "[6/7] Deploying control-plane..."
 gcloud run deploy cadris-control-plane \
   --image "${AR_REPO}/control-plane:${IMAGE_TAG}" \

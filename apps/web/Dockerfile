@@ -24,6 +24,15 @@ COPY packages/schemas/ packages/schemas/
 COPY packages/client-sdk/ packages/client-sdk/
 COPY apps/web/ apps/web/
 
+# Build-time placeholders: Next's static generation evaluates envCheck, which
+# throws if these are absent — without them `npm run build:web` fails and the
+# image can't be built. They are confined to this build stage (multi-stage, so
+# never present in the run image) and overridden by the REAL runtime env vars.
+# NEXTAUTH_SECRET is server-only and is never embedded in client bundles.
+ENV NEXTAUTH_SECRET=build-time-placeholder \
+    CONTROL_PLANE_URL=http://localhost:8000 \
+    CONTROL_PLANE_TRUSTED_PROXY_SECRET=build-time-placeholder
+
 RUN npm run build:web
 
 # ---- Run stage ----

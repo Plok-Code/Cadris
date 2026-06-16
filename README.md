@@ -116,6 +116,16 @@ $env:OPENAI_API_KEY="ta_cle"
 
 La cle OpenAI n'est donc pas obligatoire pour utiliser l'app aujourd'hui. Elle est seulement necessaire si tu veux remplacer le runtime local par de vraies sorties LLM.
 
+### Providers runtime (`CADRIS_RUNTIME_PROVIDER`)
+
+- `local` (defaut de `start-local`) : reponses **mockees**. Sert a tester l'UI
+  et le flow API rapidement. Ne lance PAS le vrai systeme multi-agents.
+- `openai` : moteur OpenAI legacy (single-pass), historique.
+- `collaborative` : le vrai systeme — **8 agents en 4 waves** (+ critic sur les
+  plans payants) qui produit le dossier de 24 documents. C'est ce provider qui
+  tourne en production. Necessite `OPENAI_API_KEY` (plans payants, gpt-4.1) et/ou
+  `TOGETHER_API_KEY` (plan free, Llama 3.3). Voir `apps/runtime/.env.example`.
+
 ### Alias npm secondaires
 
 Si tu prefères rester sur npm, utilise `cmd /c` depuis PowerShell :
@@ -135,7 +145,12 @@ Des exemples minimaux existent dans :
 
 ## Portee actuelle
 
-La premiere boucle verticale implementee est :
+> Note : la description "premiere boucle verticale / 2 agents" ci-dessous
+> correspond au socle initial. Le runtime actuel (`provider=collaborative`)
+> execute **8 agents en 4 waves** et produit un dossier de **24 documents**.
+> Voir la section "Providers runtime" plus haut.
+
+La premiere boucle verticale historique etait :
 
 `projet -> mission Demarrage -> question -> reponse -> dossier markdown`
 

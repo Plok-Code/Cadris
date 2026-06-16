@@ -4,27 +4,43 @@ services:
     environment:
       POSTGRES_DB: cadris
       POSTGRES_USER: cadris
-      POSTGRES_PASSWORD: cadris_dev
+      # Overridable per developer; never commit a real password.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cadris_dev}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cadris -d cadris"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
 
   control-plane:
     build: ./apps/control-plane
     ports:
       - "8000:8000"
     environment:
-      CONTROL_PLANE_DATABASE_URL: ${CONTROL_PLANE_DATABASE_URL:-postgresql://cadris:cadris_dev@postgres:5432/cadris}
+      CONTROL_PLANE_DATABASE_URL: ${CONTROL_PLANE_DATABASE_URL:-postgresql://cadris:${POSTGRES_PASSWORD:-cadris_dev}@postgres:5432/cadris}
       CONTROL_PLANE_RUNTIME_URL: http://runtime:8001
       CONTROL_PLANE_RENDERER_URL: http://renderer:8002
       CONTROL_PLANE_ALLOWED_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      # Shared with web (same value) — without it the control-plane rejects all
+      # authenticated requests (fail-closed). Dev default; override in real envs.
+      CONTROL_PLANE_TRUSTED_PROXY_SECRET: ${CONTROL_PLANE_TRUSTED_PROXY_SECRET:-dev-proxy-secret-change-me}
+      # Shared with runtime/renderer for service-to-service auth.
+      CADRIS_INTERNAL_SECRET: ${CADRIS_INTERNAL_SECRET:-dev-internal-secret-change-me}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       CONTROL_PLANE_S3_BUCKET: ${CONTROL_PLANE_S3_BUCKET:-}
     depends_on:
       - postgres
       - runtime
       - renderer
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   runtime:
     build:
@@ -36,11 +52,26 @@ services:
       CADRIS_RUNTIME_PROVIDER: ${CADRIS_RUNTIME_PROVIDER:-local}
       CADRIS_OPENAI_MODEL: ${CADRIS_OPENAI_MODEL:-gpt-4o}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Must match the control-plane value so internal calls are accepted.
+      CADRIS_INTERNAL_SECRET: ${CADRIS_INTERNAL_SECRET:-dev-internal-secret-change-me}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8001/health').status==200 else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   renderer:
     build: ./apps/renderer
     ports:
       - "8002:8002"
+    environment:
+      # Must match the control-plane value so internal calls are accepted.
+      CADRIS_INTERNAL_SECRET: ${CADRIS_INTERNAL_SECRET:-dev-internal-secret-change-me}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8002/health').status==200 else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   web:
     build:
@@ -50,8 +81,20 @@ services:
       - "3000:3000"
     environment:
       NEXT_PUBLIC_CADRIS_API_URL: http://control-plane:8000
+      # Server-side proxy target (used by app/api/cadris and auth-proxy routes).
+      CONTROL_PLANE_URL: http://control-plane:8000
+      # NextAuth requires these; NEXTAUTH_SECRET MUST differ from the proxy secret.
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-dev-nextauth-secret-change-me}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      # Same value as the control-plane so the signed proxy verifies.
+      CONTROL_PLANE_TRUSTED_PROXY_SECRET: ${CONTROL_PLANE_TRUSTED_PROXY_SECRET:-dev-proxy-secret-change-me}
     depends_on:
       - control-plane
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
 volumes:
   pgdata:
