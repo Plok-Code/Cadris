@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import OperationalError, ProgrammingError
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +40,11 @@ def run_sql_migrations(engine: Engine, sql_dir: Path) -> None:
                     if statement:
                         try:
                             connection.exec_driver_sql(statement)
-                        except Exception as exc:  # noqa: BLE001 — driver errors vary; re-raised if not idempotent
-                            msg = str(exc).lower()
+                        except (OperationalError, ProgrammingError) as exc:
+                            # Only DB DDL errors are eligible for idempotent
+                            # skipping; anything else propagates immediately.
+                            # Prefer the driver's original message (exc.orig).
+                            msg = str(getattr(exc, "orig", exc)).lower()
                             # Skip known-safe idempotent errors:
                             # - "duplicate column" — SQLite & Postgres duplicate ADD COLUMN
                             # - "already exists"   — Postgres "column X already exists"

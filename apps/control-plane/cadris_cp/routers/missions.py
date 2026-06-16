@@ -202,6 +202,11 @@ async def run_mission_stream(
             try:
                 session.commit()
             except Exception:  # noqa: BLE001 — best-effort rollback
+                logger.warning(
+                    "quota rollback commit failed for user %s; rolling back",
+                    db_user.id,
+                    exc_info=True,
+                )
                 session.rollback()
         # Connection cleanup — close the runtime stream to stop agents
         await _close_async_iterator(stream)

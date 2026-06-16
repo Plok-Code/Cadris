@@ -20,11 +20,28 @@ class UserRecord(Base):
     stripe_customer_id: Mapped[str | None] = mapped_column(Text(), nullable=True, index=True)
     plan_expires_at: Mapped[str | None] = mapped_column(Text(), nullable=True)
     missions_this_month: Mapped[int] = mapped_column(Integer, default=0)
-    month_reset_at: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    # Initialised at creation so the monthly counter has a valid anchor from
+    # day one — avoids a null fromisoformat() path in billing._reset_monthly_counter_if_needed.
+    month_reset_at: Mapped[str | None] = mapped_column(Text(), nullable=True, default=utc_now)
     password_hash: Mapped[str | None] = mapped_column(Text(), nullable=True)
     created_at: Mapped[str] = mapped_column(default=utc_now)
 
     projects: Mapped[list["ProjectRecord"]] = relationship(back_populates="user")
+
+
+class StripeWebhookEventRecord(Base):
+    """Durable idempotency ledger for Stripe webhook events.
+
+    Stripe delivers events at-least-once; this table makes "process at most
+    once" survive process restarts and hold across replicas (the in-memory
+    cache did neither). One row per delivered event id.
+    TODO(ops): periodic cleanup of rows older than ~90 days.
+    """
+
+    __tablename__ = "stripe_webhook_events"
+
+    event_id: Mapped[str] = mapped_column(primary_key=True)
+    processed_at: Mapped[str] = mapped_column(default=utc_now)
 
 
 class PasswordResetTokenRecord(Base):

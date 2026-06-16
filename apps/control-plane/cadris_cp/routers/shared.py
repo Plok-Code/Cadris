@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import secrets
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -22,6 +23,8 @@ from ..models import (
 )
 from ..repository import ControlPlaneRepository
 from ..services.share_service import build_shared_html
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["shared"])
 
@@ -53,6 +56,9 @@ async def create_share_link(
     if not dossier:
         raise AppError.not_found("dossier_not_found", "Dossier not found.")
 
+    # 32 bytes (256 bits) of CSPRNG entropy — collisions are practically
+    # impossible; only the hash is stored, and a UNIQUE index on token_hash
+    # (migration 015) turns any hypothetical collision into a hard failure.
     token = secrets.token_urlsafe(32)
     token_hash = _hash_token(token)
     expires_at = (datetime.now(UTC) + timedelta(days=_SHARE_LINK_TTL_DAYS)).isoformat()
@@ -87,13 +93,21 @@ async def get_shared_dossier(
     if export_record is None:
         raise AppError.not_found("share_link_not_found", "Ce lien de partage est invalide ou a ete revoque.")
 
-    # Check expiration
+    # Check expiration — fail closed on a malformed timestamp (treat as
+    # expired) rather than serving a link forever; log so the bad row can
+    # be migrated.
     if export_record.expires_at:
         try:
-            if datetime.fromisoformat(export_record.expires_at) < datetime.now(UTC):
-                raise AppError.not_found("share_link_expired", "Ce lien de partage a expire.")
+            is_expired = datetime.fromisoformat(export_record.expires_at) < datetime.now(UTC)
         except ValueError:
-            pass  # Malformed date — treat as non-expiring (legacy)
+            logger.warning(
+                "malformed expires_at for export %s: %r",
+                export_record.id,
+                export_record.expires_at,
+            )
+            is_expired = True
+        if is_expired:
+            raise AppError.not_found("share_link_expired", "Ce lien de partage a expire.")
 
     from ..records import DossierRecord
 

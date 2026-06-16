@@ -15,6 +15,11 @@ def _default_database_url() -> str:
 
 DATABASE_URL = os.getenv("CONTROL_PLANE_DATABASE_URL", _default_database_url())
 
+# Note on isolation: we keep the engine default (READ COMMITTED on Postgres).
+# The one correctness-critical concurrency path — the monthly mission quota —
+# is serialized explicitly with SELECT ... FOR UPDATE in
+# billing.check_and_increment_mission(), so a global SERIALIZABLE level (and
+# its retry-on-serialization-failure cost) is intentionally avoided.
 _is_sqlite = DATABASE_URL.startswith("sqlite")
 
 engine = create_engine(

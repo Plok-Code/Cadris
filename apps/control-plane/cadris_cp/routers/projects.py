@@ -1,6 +1,7 @@
 """Projects router."""
 from __future__ import annotations
 
+import logging
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, status
@@ -22,6 +23,8 @@ from ..models import (
     utc_now,
 )
 from ..repository import ControlPlaneRepository
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -144,6 +147,11 @@ async def create_mission(
             try:
                 session.commit()
             except Exception:  # noqa: BLE001 — best-effort rollback
+                logger.warning(
+                    "quota rollback commit failed for user %s; rolling back",
+                    db_user.id,
+                    exc_info=True,
+                )
                 session.rollback()
         raise
 

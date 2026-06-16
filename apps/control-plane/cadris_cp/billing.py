@@ -11,7 +11,6 @@ Plans: free (default), pro, team
 from __future__ import annotations
 
 import logging
-from collections import deque
 from datetime import UTC, datetime
 
 import stripe
@@ -84,28 +83,31 @@ def create_portal_session(user: UserRecord, db: Session) -> str:
     return portal.url
 
 
-# In-memory set of recently processed Stripe event IDs for idempotency.
-# Stripe may re-deliver events; this prevents double-processing.
-# Bounded to prevent unbounded growth — oldest entries evicted via FIFO.
-#
-# NOTE: This is per-process only. In multi-replica deployments, consider
-# storing processed event IDs in the database with a TTL to prevent
-# cross-replica duplicates after restarts.
-_MAX_PROCESSED_EVENTS = 1000
-_processed_events: set[str] = set()
-_processed_events_order: deque[str] = deque(maxlen=_MAX_PROCESSED_EVENTS)
+def _mark_event_processed(event_id: str, db: Session) -> bool:
+    """Return True if this Stripe event was already processed, else record it.
 
+    Durable and replica-safe: idempotency is backed by the
+    stripe_webhook_events table (PRIMARY KEY on event_id), so it survives
+    restarts and concurrent deliveries — unlike the previous in-memory set,
+    which lost state on redeploy and risked double-charging after scaling.
 
-def _mark_event_processed(event_id: str) -> bool:
-    """Return True if event was already processed, False otherwise."""
-    if event_id in _processed_events:
+    The marker is committed before the handler runs (mark-first), matching
+    the prior semantics: at-most-once processing. A handler failure after the
+    marker is committed will NOT be retried; such failures are logged.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    from .records import StripeWebhookEventRecord
+
+    if db.get(StripeWebhookEventRecord, event_id) is not None:
         return True
-    # If deque is at capacity, evict the oldest before adding
-    if len(_processed_events_order) >= _MAX_PROCESSED_EVENTS:
-        evicted = _processed_events_order[0]
-        _processed_events.discard(evicted)
-    _processed_events.add(event_id)
-    _processed_events_order.append(event_id)
+    db.add(StripeWebhookEventRecord(event_id=event_id))
+    try:
+        db.commit()
+    except IntegrityError:
+        # A concurrent delivery committed the same id first — treat as dup.
+        db.rollback()
+        return True
     return False
 
 
@@ -127,8 +129,8 @@ def handle_webhook(payload: bytes, sig_header: str, db: Session) -> dict:
         payload, sig_header, settings.stripe_webhook_secret
     )
 
-    # Idempotency check — Stripe may re-deliver events
-    if _mark_event_processed(event.id):
+    # Idempotency check — Stripe may re-deliver events (durable, replica-safe)
+    if _mark_event_processed(event.id, db):
         logger.info("stripe webhook: skipping duplicate event %s", event.id)
         return {"event_type": event.type, "handled": False, "reason": "duplicate"}
 
@@ -304,8 +306,13 @@ def check_and_increment_mission(user: UserRecord, db: Session) -> bool:
         if isinstance(result, UR):
             locked_user = result
     except (OperationalError, NotSupportedError):
-        # SQLite doesn't support FOR UPDATE — fall back to direct ORM object
-        pass
+        # FOR UPDATE unavailable (e.g. SQLite) — refresh the row so the
+        # reset + limit check below sees the latest committed counter, not a
+        # stale in-session copy from a concurrent request.
+        try:
+            db.refresh(user)
+        except Exception:  # noqa: BLE001 — best-effort; mocks/detached objs
+            pass
     except AttributeError:
         # Mock sessions (MagicMock) don't support execute() properly
         pass

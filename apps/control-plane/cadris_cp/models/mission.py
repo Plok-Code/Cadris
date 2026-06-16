@@ -133,6 +133,9 @@ class ProjectSummary(ApiModel):
 
 
 class DossierSection(ApiModel):
+    # Canonical section schema. The renderer service (apps/renderer/app/main.py)
+    # keeps a structurally-compatible copy on its own wire boundary — the
+    # max_length limits below must stay in sync with that copy.
     id: str = Field(max_length=128)
     title: str = Field(max_length=500)
     content: str = Field(max_length=50000)
