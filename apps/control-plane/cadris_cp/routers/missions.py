@@ -26,12 +26,34 @@ from ..models import (
     TimelineItem as TLI,
     ValidateDocsRequest,
 )
+from ..records import MissionRecord
 from ..repository import ControlPlaneRepository
 from ..services.mission_service import save_sse_state
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/missions", tags=["missions"])
+
+# Hard ceiling on agent round-trips (resume calls) per mission. A normal
+# mission uses far fewer (qualification + a few corrections/advances per wave);
+# this caps the LLM cost of one fixed-price mission so a determined abuser
+# can't loop corrections to run up our bill. The UI's 3-corrections/block limit
+# only protects normal users; this is the server-side backstop.
+MAX_MISSION_INTERACTIONS = 40
+
+
+def _enforce_interaction_cap(session: Session, mission_id: str) -> None:
+    """Count this interaction and reject once a mission exceeds its ceiling."""
+    record = session.get(MissionRecord, mission_id)
+    if record is None:
+        return
+    if (record.interaction_count or 0) >= MAX_MISSION_INTERACTIONS:
+        raise AppError.forbidden(
+            "Cette mission a atteint sa limite d'allers-retours. "
+            "Lancez une nouvelle mission pour continuer."
+        )
+    record.interaction_count = (record.interaction_count or 0) + 1
+    session.commit()
 
 
 async def _close_async_iterator(stream) -> None:
@@ -257,6 +279,10 @@ async def resume_mission_stream(
     mission = repository.get_mission_for_user(user.id, mission_id)
     if not mission:
         raise AppError.not_found("mission_not_found", "Mission not found.")
+
+    # Server-side cost ceiling: count this agent round-trip and reject if the
+    # mission has been looped past its cap (abuse / runaway protection).
+    _enforce_interaction_cap(session, mission_id)
 
     mission_state = repository.get_mission_state(user.id, mission_id)
     project = repository.get_project_for_user(user.id, mission.project_id)

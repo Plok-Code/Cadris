@@ -46,10 +46,14 @@ async def answer_question(
             "Trop de reponses envoyees en peu de temps. Reessayez dans une minute.",
         )
 
+    from .missions import _enforce_interaction_cap
+
     repository = ControlPlaneRepository(session)
     mission = repository.get_mission_for_user(user.id, mission_id)
     if not mission:
         raise AppError.not_found("mission_not_found", "Mission not found.")
+    # Same server-side cost ceiling as the streaming resume path.
+    _enforce_interaction_cap(session, mission_id)
     if mission.status != "waiting_user" or mission.active_question is None:
         raise AppError.conflict("mission_not_waiting_user", "La mission n'attend pas de reponse utilisateur.")
 

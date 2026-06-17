@@ -88,6 +88,9 @@ class MissionRecord(Base):
     dossier_ready: Mapped[bool] = mapped_column(Boolean, default=False)
     phase: Mapped[str] = mapped_column(Text(), default="intake")
     current_wave: Mapped[int] = mapped_column(Integer, default=0)
+    # Number of expensive agent round-trips (resume calls) this mission has
+    # triggered. Capped server-side to bound the cost of one fixed-price mission.
+    interaction_count: Mapped[int] = mapped_column(Integer, default=0)
     qualification_answers_json: Mapped[str] = mapped_column(Text(), default="{}")
     qualification_questions_json: Mapped[str] = mapped_column(Text(), default="[]")
     created_at: Mapped[str] = mapped_column(default=utc_now)
